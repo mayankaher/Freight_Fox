@@ -1,0 +1,833 @@
+"""
+FreightFox · FTL Price Intelligence
+Design: FreightFox brand-aligned — clean, modern B2B SaaS
+Brand: White canvas, navy ink, signature blue gradient, rounded cards
+Typography: Plus Jakarta Sans + DM Mono
+"""
+
+import streamlit as st
+import pandas as pd
+import numpy as np
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+import re, warnings
+warnings.filterwarnings('ignore')
+from model_v3_inference import (
+    prepare_rfq, train_v3_models, build_predict_row, predict_v3,
+    season_f, FESTIVAL_PRESSURE, MODEL_R2, MODEL_MAPE,
+)
+
+LOGO_SRC = "data:image/svg+xml;base64,PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiIHN0YW5kYWxvbmU9Im5vIj8+CjxzdmcKICAgd2lkdGg9IjMxNiIKICAgaGVpZ2h0PSIxMDEiCiAgIHZpZXdCb3g9IjAgMCAzMTYgMTAxIgogICBmaWxsPSJub25lIgogICB2ZXJzaW9uPSIxLjEiCiAgIGlkPSJzdmcxOCIKICAgeG1sOnNwYWNlPSJwcmVzZXJ2ZSIKICAgeG1sbnM6eGxpbms9Imh0dHA6Ly93d3cudzMub3JnLzE5OTkveGxpbmsiCiAgIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyIKICAgeG1sbnM6c3ZnPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PGcKICAgICBpZD0iZzQ3Ij48ZwogICAgICAgaWQ9ImczMiI+PHBhdGgKICAgICAgICAgZD0ibSA0OCwyNi41IGMgLTEzLjI1NDc4NywwIC0yNCwxMC43NDUyMTMgLTI0LDI0IDAuMDI0LDguMjU1MzkyIDQuMjg5NTc2LDE1LjkyMDAyIDExLjI5Mjk2OSwyMC4yOTEwMTYgMC42NzEwOTksLTAuNDg0Mzc1IDEuMzE0NjY5LC0xLjAxMjQwNyAxLjkyOTY4NywtMS41ODAwNzkgMS44NDQ2MTMsLTEuNzAyODM1IDMuNDE5NjMyLC0zLjc3NDM0OCA0LjYwMTU2MywtNi4xNzM4MjggbCA0Ljk5NDE0LC0xMC4xMzY3MTggaCAtOS40Mjk2ODcgYyAtMC4xMjM2LDAgLTAuMjQ0NzU2LC0wLjAzNjg3IC0wLjM0NzY1NiwtMC4xMDU0NjkgbCAtMi42Nzk2ODgsLTEuNzg3MTEgQyAzNC4xMzMzMjgsNTAuODU1OTEzIDM0LjIzOTY3Miw1MC41IDM0LjUxMzY3Miw1MC41IGggOS43OTQ5MjIgYyAzLjQ3OTQ5NiwwIDUuMzAwNDE2LC00LjEzNjE3NCAyLjk0OTIxOCwtNi43MDExNzIgLTAuMDk4OCwtMC4xMDc3IDAuMDIyLC0wLjI3MzEzNyAwLjE1NDI5NywtMC4yMTA5MzcgbCAzLjI0MjE4OCwxLjUyNTM5IDMuNTIxNDg0LC03LjE1MDM5IGMgMC45OTAzNzQsLTIuMDEwNjIzIDIuMjUzNzI4LC0zLjc5MTk0NSAzLjcyMjY1NiwtNS4zMTgzNiAwLjg4MTA4NywtMC45MTU0NDQgMS44MzYyODQsLTEuNzM5MzQgMi44NDk2MSwtMi40NjY3OTcgMCwwIDAuMDAyLDAgMC4wMDIsMCBDIDYzLjUwMzY5NywyOC4yMDA5MzYgNjYuNjkwOTIyLDI2Ljk0NTMgNzAuMDExNzE5LDI2LjUgSCA1Ni4yMjA3MDMgWiIKICAgICAgICAgc3R5bGU9ImZpbGw6dXJsKCNwYWludDBfcmFkaWFsXzczMV85NDUpIgogICAgICAgICBpZD0icGF0aDMwIiAvPjxwYXRoCiAgICAgICAgIGQ9Im0gNjAuNzUsMzAuMTc3NzM0IGMgMCwwIC0wLjAwMiwwIC0wLjAwMiwwIC0xLjAxMzMyNiwwLjcyNzQ1NyAtMS45NjY1NjksMS41NTEzNTMgLTIuODQ3NjU2LDIuNDY2Nzk3IC0xLjE3NTEyNywxLjIyMTExMiAtMi4yMTk4ODYsMi42MDQ1NzkgLTMuMDk3NjU3LDQuMTM4NjcyIC0wLjIxOTQzNSwwLjM4MzUyNCAtMC40Mjg4NzgsMC43Nzc1NjMgLTAuNjI2OTUzLDEuMTc5Njg4IGwgLTMuNTIxNDg0LDcuMTUwMzkgMTUuNTc0MjE5LDcuMzMwMDc4IGMgMC4yMzE5OTksMC4xMDkyIDAuMTU0NzM3LDAuNDU3MDMyIC0wLjEwMTU2MywwLjQ1NzAzMiBIIDQ2LjgxODM1OSBsIC00Ljk5NDE0LDEwLjEzNjcxOCBjIC0wLjM5NDA1LDAuNzk5OTc1IC0wLjgzMjEwMSwxLjU2MzU5MiAtMS4zMDg1OTQsMi4yODkwNjMgLTAuNzE0NzQsMS4wODgxOTMgLTEuNTE3MDU1LDIuMDkxNTkzIC0yLjM5MjU3OCwzLjAwMzkwNiAtMC4yOTE1MTgsMC4zMDM3NzMgLTAuNTkzMjM5LDAuNTk3MzE2IC0wLjkwMDM5MSwwLjg4MDg1OSAtMC42MTUwMTgsMC41Njc2NzIgLTEuMjU4NTg4LDEuMDk1NzA0IC0xLjkyOTY4NywxLjU4MDA3OSBDIDMyLjUzMDE3Miw3Mi43ODUwMTQgMjkuMzI3MzMxLDc0LjA1MiAyNS45OTAyMzQsNzQuNSBIIDM5Ljc3OTI5NyA0OCBjIDEzLjI1NDc4NywwIDI0LC0xMC43NDUzMTMgMjQsLTI0IEMgNzEuOTk2Miw0Mi4yNDE4NTEgNjcuNzQ2MTcyLDM0LjU2NTE3NCA2MC43NSwzMC4xNzc3MzQgWiIKICAgICAgICAgc3R5bGU9ImZpbGw6dXJsKCNwYWludDFfcmFkaWFsXzczMV85NDUpIgogICAgICAgICBpZD0icGF0aDMxIiAvPjxwYXRoCiAgICAgICAgIGQ9Im0gNDcuMzYzMjgxLDQzLjU3NDIxOSBjIC0wLjExMDQwMSwtMC4wMDg1IC0wLjE5MTkxOCwwLjEzMDM3MiAtMC4xMDU0NjksMC4yMjQ2MDkgQyA0OS42MDkwMDUsNDYuMzYzODIgNDcuNzg4MDgzLDUwLjUgNDQuMzA4NTk0LDUwLjUgaCAtOS43OTQ5MjIgYyAtMC4yNzM5OTksMCAtMC4zODAzNDMsMC4zNTU5MTMgLTAuMTUyMzQ0LDAuNTA3ODEyIGwgMi42Nzk2ODgsMS43ODcxMSBjIDAuMTAyODk5LDAuMDY4NiAwLjIyNDA1NiwwLjEwNTQ2OSAwLjM0NzY1NiwwLjEwNTQ2OSBoIDkuNDI5Njg3IDE5LjMwODU5NCBjIDAuMjU2Mjk5LDAgMC4zMzM1NjIsLTAuMzQ3ODMyIDAuMTAxNTYzLC0wLjQ1NzAzMiBsIC0xNS41NzQyMTksLTcuMzMwMDc4IC0zLjI0MjE4OCwtMS41MjUzOSBjIC0wLjAxNjU0LC0wLjAwNzggLTAuMDMzMDYsLTAuMDEyNDUgLTAuMDQ4ODMsLTAuMDEzNjcgeiIKICAgICAgICAgc3R5bGU9ImZpbGw6I2ZmZmZmZiIKICAgICAgICAgaWQ9InBhdGgyOSIgLz48L2c+PGcKICAgICAgIGlkPSJnNDYiPjxwYXRoCiAgICAgICAgIGQ9Ik0xMDAuNDQgNDIuNDc5OEg5MS4wMDAyVjQ3LjUxOThIOTkuNjAwMlY1NC4xNTk4SDkxLjAwMDJWNjUuOTk5OEg4My4xNjAyVjM1LjgzOThIMTAwLjQ0VjQyLjQ3OThaIgogICAgICAgICBmaWxsPSIjMTMxOTJGIgogICAgICAgICBpZD0icGF0aDQiIC8+PHBhdGgKICAgICAgICAgZD0iTTEwMi43OTQgNDUuNDc5OEgxMTAuMDM0VjQ4LjgzOThDMTEwLjgwOCA0Ny42MTMxIDExMS43NTQgNDYuNjc5OCAxMTIuODc0IDQ2LjAzOThDMTEzLjk5NCA0NS4zNzMxIDExNS4zMDEgNDUuMDM5OCAxMTYuNzk0IDQ1LjAzOThDMTE2Ljk4MSA0NS4wMzk4IDExNy4xODEgNDUuMDM5OCAxMTcuMzk0IDQ1LjAzOThDMTE3LjYzNCA0NS4wMzk4IDExNy45MDEgNDUuMDY2NSAxMTguMTk0IDQ1LjExOThWNTIuMDM5OEMxMTcuMjM0IDUxLjU1OTggMTE2LjE5NCA1MS4zMTk4IDExNS4wNzQgNTEuMzE5OEMxMTMuMzk0IDUxLjMxOTggMTEyLjEyOCA1MS44MjY1IDExMS4yNzQgNTIuODM5OEMxMTAuNDQ4IDUzLjgyNjUgMTEwLjAzNCA1NS4yNzk4IDExMC4wMzQgNTcuMTk5OFY2NS45OTk4SDEwMi43OTRWNDUuNDc5OFoiCiAgICAgICAgIGZpbGw9IiMxMzE5MkYiCiAgICAgICAgIGlkPSJwYXRoNSIgLz48cGF0aAogICAgICAgICBkPSJNMTM1LjQ2MSA1Mi43NTk4QzEzNS4yMjEgNTEuNzQ2NSAxMzQuNzI4IDUwLjkzMzEgMTMzLjk4MSA1MC4zMTk4QzEzMy4yMzUgNDkuNzA2NSAxMzIuMzI4IDQ5LjM5OTggMTMxLjI2MSA0OS4zOTk4QzEzMC4xNDEgNDkuMzk5OCAxMjkuMjIxIDQ5LjY5MzEgMTI4LjUwMSA1MC4yNzk4QzEyNy44MDggNTAuODY2NSAxMjcuMzY4IDUxLjY5MzEgMTI3LjE4MSA1Mi43NTk4SDEzNS40NjFaTTEyNi45ODEgNTYuOTU5OEMxMjYuOTgxIDYwLjA3OTggMTI4LjQ0OCA2MS42Mzk4IDEzMS4zODEgNjEuNjM5OEMxMzIuOTU1IDYxLjYzOTggMTM0LjE0MSA2MC45OTk4IDEzNC45NDEgNTkuNzE5OEgxNDEuOTQxQzE0MC41MjggNjQuNDEzMSAxMzYuOTk1IDY2Ljc1OTggMTMxLjM0MSA2Ni43NTk4QzEyOS42MDggNjYuNzU5OCAxMjguMDIxIDY2LjUwNjUgMTI2LjU4MSA2NS45OTk4QzEyNS4xNDEgNjUuNDY2NSAxMjMuOTAxIDY0LjcxOTggMTIyLjg2MSA2My43NTk4QzEyMS44NDggNjIuNzk5OCAxMjEuMDYxIDYxLjY1MzEgMTIwLjUwMSA2MC4zMTk4QzExOS45NDEgNTguOTg2NSAxMTkuNjYxIDU3LjQ5MzEgMTE5LjY2MSA1NS44Mzk4QzExOS42NjEgNTQuMTMzMSAxMTkuOTI4IDUyLjU5OTggMTIwLjQ2MSA1MS4yMzk4QzEyMC45OTUgNDkuODUzMSAxMjEuNzU1IDQ4LjY3OTggMTIyLjc0MSA0Ny43MTk4QzEyMy43MjggNDYuNzU5OCAxMjQuOTE1IDQ2LjAyNjUgMTI2LjMwMSA0NS41MTk4QzEyNy43MTUgNDQuOTg2NSAxMjkuMzAxIDQ0LjcxOTggMTMxLjA2MSA0NC43MTk4QzEzMi43OTUgNDQuNzE5OCAxMzQuMzU1IDQ0Ljk4NjUgMTM1Ljc0MSA0NS41MTk4QzEzNy4xMjggNDYuMDI2NSAxMzguMzAxIDQ2Ljc3MzEgMTM5LjI2MSA0Ny43NTk4QzE0MC4yMjEgNDguNzQ2NSAxNDAuOTU1IDQ5Ljk1OTggMTQxLjQ2MSA1MS4zOTk4QzE0MS45NjggNTIuODEzMSAxNDIuMjIxIDU0LjQxMzEgMTQyLjIyMSA1Ni4xOTk4VjU2Ljk1OThIMTI2Ljk4MVoiCiAgICAgICAgIGZpbGw9IiMxMzE5MkYiCiAgICAgICAgIGlkPSJwYXRoNiIgLz48cGF0aAogICAgICAgICBkPSJNMTUyIDQ1LjQ3OThWNjUuOTk5OEgxNDQuNzZWNDUuNDc5OEgxNTJaTTE0NC4yOCAzNy41OTk4QzE0NC4yOCAzNy4wMzk4IDE0NC4zODcgMzYuNTE5OCAxNDQuNiAzNi4wMzk4QzE0NC44MTMgMzUuNTMzMSAxNDUuMTA3IDM1LjA5MzEgMTQ1LjQ4IDM0LjcxOThDMTQ1Ljg1MyAzNC4zNDY1IDE0Ni4yOCAzNC4wNTMxIDE0Ni43NiAzMy44Mzk4QzE0Ny4yNjcgMzMuNjI2NSAxNDcuOCAzMy41MTk4IDE0OC4zNiAzMy41MTk4QzE0OC45MiAzMy41MTk4IDE0OS40NCAzMy42MjY1IDE0OS45MiAzMy44Mzk4QzE1MC40MjcgMzQuMDUzMSAxNTAuODY3IDM0LjM0NjUgMTUxLjI0IDM0LjcxOThDMTUxLjYxMyAzNS4wOTMxIDE1MS45MDcgMzUuNTMzMSAxNTIuMTIgMzYuMDM5OEMxNTIuMzMzIDM2LjUxOTggMTUyLjQ0IDM3LjAzOTggMTUyLjQ0IDM3LjU5OThDMTUyLjQ0IDM4LjE1OTggMTUyLjMzMyAzOC42OTMxIDE1Mi4xMiAzOS4xOTk4QzE1MS45MDcgMzkuNjc5OCAxNTEuNjEzIDQwLjEwNjUgMTUxLjI0IDQwLjQ3OThDMTUwLjg2NyA0MC44NTMxIDE1MC40MjcgNDEuMTQ2NSAxNDkuOTIgNDEuMzU5OEMxNDkuNDQgNDEuNTczMSAxNDguOTIgNDEuNjc5OCAxNDguMzYgNDEuNjc5OEMxNDcuOCA0MS42Nzk4IDE0Ny4yNjcgNDEuNTczMSAxNDYuNzYgNDEuMzU5OEMxNDYuMjggNDEuMTQ2NSAxNDUuODUzIDQwLjg1MzEgMTQ1LjQ4IDQwLjQ3OThDMTQ1LjEwNyA0MC4xMDY1IDE0NC44MTMgMzkuNjc5OCAxNDQuNiAzOS4xOTk4QzE0NC4zODcgMzguNjkzMSAxNDQuMjggMzguMTU5OCAxNDQuMjggMzcuNTk5OFoiCiAgICAgICAgIGZpbGw9IiMxMzE5MkYiCiAgICAgICAgIGlkPSJwYXRoNyIgLz48cGF0aAogICAgICAgICBkPSJNMTYyLjA2NyA1NS42Mzk4QzE2Mi4wNjcgNTYuMzA2NSAxNjIuMTg3IDU2LjkzMzEgMTYyLjQyNyA1Ny41MTk4QzE2Mi42NjcgNTguMDc5OCAxNjIuOTg3IDU4LjU3MzEgMTYzLjM4NyA1OC45OTk4QzE2My44MTQgNTkuNDI2NSAxNjQuMzA3IDU5Ljc1OTggMTY0Ljg2NyA1OS45OTk4QzE2NS40NTQgNjAuMjM5OCAxNjYuMDgxIDYwLjM1OTggMTY2Ljc0NyA2MC4zNTk4QzE2Ny4zODcgNjAuMzU5OCAxNjcuOTg3IDYwLjIzOTggMTY4LjU0NyA1OS45OTk4QzE2OS4xMzQgNTkuNzU5OCAxNjkuNjI3IDU5LjQyNjUgMTcwLjAyNyA1OC45OTk4QzE3MC40NTQgNTguNTczMSAxNzAuNzg3IDU4LjA3OTggMTcxLjAyNyA1Ny41MTk4QzE3MS4yOTQgNTYuOTMzMSAxNzEuNDI3IDU2LjMxOTggMTcxLjQyNyA1NS42Nzk4QzE3MS40MjcgNTUuMDEzMSAxNzEuMjk0IDU0LjM5OTggMTcxLjAyNyA1My44Mzk4QzE3MC43ODcgNTMuMjc5OCAxNzAuNDU0IDUyLjc4NjUgMTcwLjAyNyA1Mi4zNTk4QzE2OS42MDEgNTEuOTMzMSAxNjkuMDk0IDUxLjU5OTggMTY4LjUwNyA1MS4zNTk4QzE2Ny45NDcgNTEuMTE5OCAxNjcuMzYxIDUwLjk5OTggMTY2Ljc0NyA1MC45OTk4QzE2Ni4xMDcgNTAuOTk5OCAxNjUuNTA3IDUxLjEzMzEgMTY0Ljk0NyA1MS4zOTk4QzE2NC4zODcgNTEuNjM5OCAxNjMuODk0IDUxLjk3MzEgMTYzLjQ2NyA1Mi4zOTk4QzE2My4wNDEgNTIuNzk5OCAxNjIuNjk0IDUzLjI3OTggMTYyLjQyNyA1My44Mzk4QzE2Mi4xODcgNTQuMzk5OCAxNjIuMDY3IDU0Ljk5OTggMTYyLjA2NyA1NS42Mzk4Wk0xNzguMzA3IDQ1LjQ3OThWNjQuNTk5OEMxNzguMzA3IDY1Ljc0NjUgMTc4LjI0MSA2Ni43NzMxIDE3OC4xMDcgNjcuNjc5OEMxNzcuOTc0IDY4LjU4NjUgMTc3Ljc4NyA2OS4zODY1IDE3Ny41NDcgNzAuMDc5OEMxNzcuMjI3IDcwLjk1OTggMTc2LjcyMSA3MS43NzMxIDE3Ni4wMjcgNzIuNTE5OEMxNzUuMzYxIDczLjI5MzEgMTc0LjU0NyA3My45NTk4IDE3My41ODcgNzQuNTE5OEMxNzIuNjI3IDc1LjA3OTggMTcxLjUzNCA3NS41MTk4IDE3MC4zMDcgNzUuODM5OEMxNjkuMTA3IDc2LjE1OTggMTY3LjgwMSA3Ni4zMTk4IDE2Ni4zODcgNzYuMzE5OEMxNjQuNzg3IDc2LjMxOTggMTYzLjMyMSA3Ni4xMTk4IDE2MS45ODcgNzUuNzE5OEMxNjAuNjU0IDc1LjMxOTggMTU5LjQ4MSA3NC43NTk4IDE1OC40NjcgNzQuMDM5OEMxNTcuNDgxIDczLjM0NjUgMTU2LjY2NyA3Mi41MTk4IDE1Ni4wMjcgNzEuNTU5OEMxNTUuMzg3IDcwLjYyNjUgMTU0Ljk2MSA2OS41OTk4IDE1NC43NDcgNjguNDc5OEgxNjIuOTA3QzE2My40MTQgNjkuODM5OCAxNjQuNTYxIDcwLjUxOTggMTY2LjM0NyA3MC41MTk4QzE2Ny44NjcgNzAuNTE5OCAxNjkuMDI3IDcwLjA5MzEgMTY5LjgyNyA2OS4yMzk4QzE3MC42NTQgNjguMzg2NSAxNzEuMDY3IDY3LjE5OTggMTcxLjA2NyA2NS42Nzk4VjYzLjcxOThDMTcwLjUzNCA2NC4yMjY1IDE3MC4wMTQgNjQuNjUzMSAxNjkuNTA3IDY0Ljk5OThDMTY5LjAyNyA2NS4zMTk4IDE2OC41MzQgNjUuNTg2NSAxNjguMDI3IDY1Ljc5OThDMTY3LjUyMSA2Ni4wMTMxIDE2Ni45ODcgNjYuMTU5OCAxNjYuNDI3IDY2LjIzOThDMTY1Ljg2NyA2Ni4zNDY1IDE2NS4yNTQgNjYuMzk5OCAxNjQuNTg3IDY2LjM5OThDMTYzLjEyMSA2Ni4zOTk4IDE2MS43NzQgNjYuMTQ2NSAxNjAuNTQ3IDY1LjYzOThDMTU5LjMyMSA2NS4xMzMxIDE1OC4yNTQgNjQuNDI2NSAxNTcuMzQ3IDYzLjUxOThDMTU2LjQ2NyA2Mi42MTMxIDE1NS43NzQgNjEuNTMzMSAxNTUuMjY3IDYwLjI3OThDMTU0Ljc4NyA1OC45OTk4IDE1NC41NDcgNTcuNTg2NSAxNTQuNTQ3IDU2LjAzOThDMTU0LjU0NyA1NC40NjY1IDE1NC44MTQgNTMuMDEzMSAxNTUuMzQ3IDUxLjY3OThDMTU1Ljg4MSA1MC4zMTk4IDE1Ni42MDEgNDkuMTQ2NSAxNTcuNTA3IDQ4LjE1OThDMTU4LjQ0MSA0Ny4xNDY1IDE1OS41MzQgNDYuMzU5OCAxNjAuNzg3IDQ1Ljc5OThDMTYyLjA2NyA0NS4yMTMxIDE2My40NTQgNDQuOTE5OCAxNjQuOTQ3IDQ0LjkxOThDMTY3LjM3NCA0NC45MTk4IDE2OS40MTQgNDUuODI2NSAxNzEuMDY3IDQ3LjYzOThWNDUuNDc5OEgxNzguMzA3WiIKICAgICAgICAgZmlsbD0iIzEzMTkyRiIKICAgICAgICAgaWQ9InBhdGg4IiAvPjxwYXRoCiAgICAgICAgIGQ9Ik0xODEuMjM4IDMyLjc5OThIMTg4LjQ3OFY0OC4wNzk4QzE4OS40NjUgNDYuODc5OCAxOTAuNDY1IDQ2LjA3OTggMTkxLjQ3OCA0NS42Nzk4QzE5Mi40OTEgNDUuMjUzMSAxOTMuNjc4IDQ1LjAzOTggMTk1LjAzOCA0NS4wMzk4QzE5Ny42MjUgNDUuMDM5OCAxOTkuNTcxIDQ1Ljc1OTggMjAwLjg3OCA0Ny4xOTk4QzIwMi4yMTEgNDguNjEzMSAyMDIuODc4IDUwLjUzMzEgMjAyLjg3OCA1Mi45NTk4VjY1Ljk5OThIMTk1LjYzOFY1NS42Mzk4QzE5NS42MzggNTQuNTk5OCAxOTUuNTU4IDUzLjc1OTggMTk1LjM5OCA1My4xMTk4QzE5NS4yMzggNTIuNDc5OCAxOTQuOTcxIDUxLjk4NjUgMTk0LjU5OCA1MS42Mzk4QzE5My45NTggNTEuMDc5OCAxOTMuMTg1IDUwLjc5OTggMTkyLjI3OCA1MC43OTk4QzE5MS4wNTEgNTAuNzk5OCAxOTAuMTA1IDUxLjE3MzEgMTg5LjQzOCA1MS45MTk4QzE4OC43OTggNTIuNjM5OCAxODguNDc4IDUzLjY3OTggMTg4LjQ3OCA1NS4wMzk4VjY1Ljk5OThIMTgxLjIzOFYzMi43OTk4WiIKICAgICAgICAgZmlsbD0iIzEzMTkyRiIKICAgICAgICAgaWQ9InBhdGg5IiAvPjxwYXRoCiAgICAgICAgIGQ9Ik0yMTQuNjggNTEuNTE5OFY2NS45OTk4SDIwNy40NFY1MS41MTk4SDIwNS4wNFY0NS40Nzk4SDIwNy40NFYzOS4zMTk4SDIxNC42OFY0NS40Nzk4SDIxOC44VjUxLjUxOThIMjE0LjY4WiIKICAgICAgICAgZmlsbD0iIzEzMTkyRiIKICAgICAgICAgaWQ9InBhdGgxMCIgLz48cGF0aAogICAgICAgICBkPSJNMjM4LjI4MiA0Mi40Nzk4SDIyOC44NDJWNDcuNTE5OEgyMzcuNDQyVjU0LjE1OThIMjI4Ljg0MlY2NS45OTk4SDIyMS4wMDJWMzUuODM5OEgyMzguMjgyVjQyLjQ3OThaIgogICAgICAgICBmaWxsPSIjMTMxOTJGIgogICAgICAgICBpZD0icGF0aDExIiAvPjxwYXRoCiAgICAgICAgIGQ9Ik0yNDcuMjAzIDU1LjYzOThDMjQ3LjIwMyA1Ni4zMzMxIDI0Ny4zMjMgNTYuOTczMSAyNDcuNTYzIDU3LjU1OThDMjQ3LjgzIDU4LjExOTggMjQ4LjE2MyA1OC42MTMxIDI0OC41NjMgNTkuMDM5OEMyNDguOTkgNTkuNDY2NSAyNDkuNDgzIDU5Ljc5OTggMjUwLjA0MyA2MC4wMzk4QzI1MC42MyA2MC4yNzk4IDI1MS4yNDMgNjAuMzk5OCAyNTEuODgzIDYwLjM5OThDMjUyLjUyMyA2MC4zOTk4IDI1My4xMjMgNjAuMjc5OCAyNTMuNjgzIDYwLjAzOThDMjU0LjI3IDU5Ljc5OTggMjU0Ljc2MyA1OS40NjY1IDI1NS4xNjMgNTkuMDM5OEMyNTUuNTkgNTguNjEzMSAyNTUuOTIzIDU4LjExOTggMjU2LjE2MyA1Ny41NTk4QzI1Ni40MyA1Ni45NzMxIDI1Ni41NjMgNTYuMzQ2NSAyNTYuNTYzIDU1LjY3OThDMjU2LjU2MyA1NS4wMzk4IDI1Ni40MyA1NC40Mzk4IDI1Ni4xNjMgNTMuODc5OEMyNTUuOTIzIDUzLjI5MzEgMjU1LjU5IDUyLjc4NjUgMjU1LjE2MyA1Mi4zNTk4QzI1NC43NjMgNTEuOTMzMSAyNTQuMjcgNTEuNTk5OCAyNTMuNjgzIDUxLjM1OThDMjUzLjEyMyA1MS4xMTk4IDI1Mi41MjMgNTAuOTk5OCAyNTEuODgzIDUwLjk5OThDMjUxLjI0MyA1MC45OTk4IDI1MC42MyA1MS4xMTk4IDI1MC4wNDMgNTEuMzU5OEMyNDkuNDgzIDUxLjU5OTggMjQ4Ljk5IDUxLjkzMzEgMjQ4LjU2MyA1Mi4zNTk4QzI0OC4xNjMgNTIuNzg2NSAyNDcuODMgNTMuMjc5OCAyNDcuNTYzIDUzLjgzOThDMjQ3LjMyMyA1NC4zOTk4IDI0Ny4yMDMgNTQuOTk5OCAyNDcuMjAzIDU1LjYzOThaTTIzOS41NjMgNTUuNTU5OEMyMzkuNTYzIDU0LjAzOTggMjM5Ljg3IDUyLjYyNjUgMjQwLjQ4MyA1MS4zMTk4QzI0MS4wOTYgNDkuOTg2NSAyNDEuOTUgNDguODM5OCAyNDMuMDQzIDQ3Ljg3OThDMjQ0LjEzNiA0Ni44OTMxIDI0NS40MyA0Ni4xMTk4IDI0Ni45MjMgNDUuNTU5OEMyNDguNDQzIDQ0Ljk5OTggMjUwLjA5NiA0NC43MTk4IDI1MS44ODMgNDQuNzE5OEMyNTMuNjQzIDQ0LjcxOTggMjU1LjI3IDQ0Ljk5OTggMjU2Ljc2MyA0NS41NTk4QzI1OC4yODMgNDYuMDkzMSAyNTkuNTkgNDYuODUzMSAyNjAuNjgzIDQ3LjgzOThDMjYxLjgwMyA0OC43OTk4IDI2Mi42NyA0OS45NTk4IDI2My4yODMgNTEuMzE5OEMyNjMuODk2IDUyLjY1MzEgMjY0LjIwMyA1NC4xMzMxIDI2NC4yMDMgNTUuNzU5OEMyNjQuMjAzIDU3LjM4NjUgMjYzLjg4MyA1OC44Nzk4IDI2My4yNDMgNjAuMjM5OEMyNjIuNjMgNjEuNTczMSAyNjEuNzc2IDYyLjczMzEgMjYwLjY4MyA2My43MTk4QzI1OS41OSA2NC42Nzk4IDI1OC4yNyA2NS40MjY1IDI1Ni43MjMgNjUuOTU5OEMyNTUuMjAzIDY2LjQ5MzEgMjUzLjU1IDY2Ljc1OTggMjUxLjc2MyA2Ni43NTk4QzI1MC4wMDMgNjYuNzU5OCAyNDguMzc2IDY2LjQ5MzEgMjQ2Ljg4MyA2NS45NTk4QzI0NS4zOSA2NS40MjY1IDI0NC4wOTYgNjQuNjY2NSAyNDMuMDAzIDYzLjY3OThDMjQxLjkzNiA2Mi42OTMxIDI0MS4wOTYgNjEuNTE5OCAyNDAuNDgzIDYwLjE1OThDMjM5Ljg3IDU4Ljc3MzEgMjM5LjU2MyA1Ny4yMzk4IDIzOS41NjMgNTUuNTU5OFoiCiAgICAgICAgIGZpbGw9IiMxMzE5MkYiCiAgICAgICAgIGlkPSJwYXRoMTIiIC8+PHBhdGgKICAgICAgICAgZD0iTTI3MS45NjQgNTQuODc5OEwyNjMuNjQ0IDQ1LjQ3OThIMjczLjA4NEwyNzYuNjA0IDQ5LjcxOThMMjgwLjIwNCA0NS40Nzk4SDI4OS42NDRMMjgxLjEyNCA1NC44Nzk4TDI5MS40MDQgNjUuOTk5OEgyODEuODA0TDI3Ni41NjQgNTkuOTE5OEwyNzEuMjg0IDY1Ljk5OThIMjYxLjcyNEwyNzEuOTY0IDU0Ljg3OThaIgogICAgICAgICBmaWxsPSIjMTMxOTJGIgogICAgICAgICBpZD0icGF0aDEzIiAvPjwvZz48L2c+PGRlZnMKICAgICBpZD0iZGVmczE4Ij48cmFkaWFsR3JhZGllbnQKICAgICAgIGlkPSJwYWludDBfcmFkaWFsXzczMV85NDUiCiAgICAgICBjeD0iMCIKICAgICAgIGN5PSIwIgogICAgICAgcj0iMSIKICAgICAgIGdyYWRpZW50VW5pdHM9InVzZXJTcGFjZU9uVXNlIgogICAgICAgZ3JhZGllbnRUcmFuc2Zvcm09InRyYW5zbGF0ZSg2MC42IDMwLjEpIHJvdGF0ZSgxMzQuNTM0KSBzY2FsZSg1Mi4xODYyIDQ3LjgyNjcpIj48c3RvcAogICAgICAgICBzdG9wLWNvbG9yPSIjN0FBN0ZGIgogICAgICAgICBpZD0ic3RvcDE1IgogICAgICAgICBvZmZzZXQ9IjAiIC8+PHN0b3AKICAgICAgICAgc3RvcC1jb2xvcj0iIzdBQTdGRiIKICAgICAgICAgaWQ9InN0b3AyOSIKICAgICAgICAgb2Zmc2V0PSIwLjUiCiAgICAgICAgIHN0eWxlPSJzdG9wLWNvbG9yOiMzZTZmZjY7c3RvcC1vcGFjaXR5OjE7IiAvPjxzdG9wCiAgICAgICAgIG9mZnNldD0iMSIKICAgICAgICAgc3RvcC1jb2xvcj0iIzE4MkFEMCIKICAgICAgICAgaWQ9InN0b3AyMSIKICAgICAgICAgc3R5bGU9InN0b3AtY29sb3I6IzE4MmFkMDtzdG9wLW9wYWNpdHk6MTsiIC8+PC9yYWRpYWxHcmFkaWVudD48cmFkaWFsR3JhZGllbnQKICAgICAgIGlkPSJwYWludDFfcmFkaWFsXzczMV85NDUiCiAgICAgICBjeD0iMCIKICAgICAgIGN5PSIwIgogICAgICAgcj0iMSIKICAgICAgIGdyYWRpZW50VW5pdHM9InVzZXJTcGFjZU9uVXNlIgogICAgICAgZ3JhZGllbnRUcmFuc2Zvcm09InRyYW5zbGF0ZSg2Mi41ODc5IDMzLjc3OTkpIHJvdGF0ZSgxMzQuNTExKSBzY2FsZSg1Mi4yMDQgNDcuODQyNCkiPjxzdG9wCiAgICAgICAgIHN0b3AtY29sb3I9IiMxODJBRDAiCiAgICAgICAgIGlkPSJzdG9wMTYiCiAgICAgICAgIG9mZnNldD0iMCIgLz48c3RvcAogICAgICAgICBvZmZzZXQ9IjAuNTI3MzYyIgogICAgICAgICBzdG9wLWNvbG9yPSIjM0U2RkY2IgogICAgICAgICBpZD0ic3RvcDE3IiAvPjxzdG9wCiAgICAgICAgIG9mZnNldD0iMSIKICAgICAgICAgc3RvcC1jb2xvcj0iIzdBQTdGRiIKICAgICAgICAgaWQ9InN0b3AxOCIgLz48L3JhZGlhbEdyYWRpZW50PjxyYWRpYWxHcmFkaWVudAogICAgICAgeGxpbms6aHJlZj0iI3BhaW50MF9yYWRpYWxfNzMxXzk0NSIKICAgICAgIGlkPSJyYWRpYWxHcmFkaWVudDM0IgogICAgICAgZ3JhZGllbnRVbml0cz0idXNlclNwYWNlT25Vc2UiCiAgICAgICBncmFkaWVudFRyYW5zZm9ybT0ibWF0cml4KC0zNi41OTk4NzIsMzcuMjAwMTE4LC0zNC4wOTI1MTcsLTMzLjU0MjQxNCw2MC42LDMwLjEpIgogICAgICAgY3g9IjAiCiAgICAgICBjeT0iMCIKICAgICAgIHI9IjEiIC8+PHJhZGlhbEdyYWRpZW50CiAgICAgICB4bGluazpocmVmPSIjcGFpbnQxX3JhZGlhbF83MzFfOTQ1IgogICAgICAgaWQ9InJhZGlhbEdyYWRpZW50MzUiCiAgICAgICBncmFkaWVudFVuaXRzPSJ1c2VyU3BhY2VPblVzZSIKICAgICAgIGdyYWRpZW50VHJhbnNmb3JtPSJtYXRyaXgoLTM2LjU5NzQxNSwzNy4yMjc1MDEsLTM0LjExNzE3NSwtMzMuNTM5NzMyLDYyLjU4NzksMzMuNzc5OSkiCiAgICAgICBjeD0iMCIKICAgICAgIGN5PSIwIgogICAgICAgcj0iMSIgLz48cmFkaWFsR3JhZGllbnQKICAgICAgIHhsaW5rOmhyZWY9IiNwYWludDBfcmFkaWFsXzczMV85NDUiCiAgICAgICBpZD0icmFkaWFsR3JhZGllbnQ0NyIKICAgICAgIGdyYWRpZW50VW5pdHM9InVzZXJTcGFjZU9uVXNlIgogICAgICAgZ3JhZGllbnRUcmFuc2Zvcm09Im1hdHJpeCgtMzYuNTk5ODcyLDM3LjIwMDExOCwtMzQuMDkyNTE3LC0zMy41NDI0MTQsNjAuNiwzMC4xKSIKICAgICAgIGN4PSIwIgogICAgICAgY3k9IjAiCiAgICAgICByPSIxIiAvPjwvZGVmcz48ZwogICAgIGlkPSJnNDgiPjxnCiAgICAgICBzdHlsZT0iZmlsbDpub25lIgogICAgICAgaWQ9ImczMSIKICAgICAgIHRyYW5zZm9ybT0idHJhbnNsYXRlKDE2LjIwNjgwOCwyNTQuNTc2NTIpIj48cGF0aAogICAgICAgICBkPSJtIDQzLjI4LDEzMC40OCBoIC05LjQ0IHYgNS4wNCBoIDguNiB2IDYuNjQgaCAtOC42IFYgMTU0IEggMjYgdiAtMzAuMTYgaCAxNy4yOCB6IgogICAgICAgICBmaWxsPSIjMTMxOTJmIgogICAgICAgICBpZD0icGF0aDQtNyIgLz48cGF0aAogICAgICAgICBkPSJtIDQ1LjYzNDEsMTMzLjQ4IGggNy4yNCB2IDMuMzYgYyAwLjc3MzMsLTEuMjI3IDEuNzIsLTIuMTYgMi44NCwtMi44IDEuMTIsLTAuNjY3IDIuNDI2NiwtMSAzLjkyLC0xIDAuMTg2NiwwIDAuMzg2NiwwIDAuNiwwIDAuMjQsMCAwLjUwNjYsMC4wMjYgMC44LDAuMDggdiA2LjkyIGMgLTAuOTYsLTAuNDggLTIsLTAuNzIgLTMuMTIsLTAuNzIgLTEuNjgsMCAtMi45NDY3LDAuNTA2IC0zLjgsMS41MiAtMC44MjY3LDAuOTg2IC0xLjI0LDIuNDQgLTEuMjQsNC4zNiB2IDguOCBoIC03LjI0IHoiCiAgICAgICAgIGZpbGw9IiMxMzE5MmYiCiAgICAgICAgIGlkPSJwYXRoNS04IiAvPjxwYXRoCiAgICAgICAgIGQ9Im0gNzguMzAxMywxNDAuNzYgYyAtMC4yNCwtMS4wMTQgLTAuNzMzNCwtMS44MjcgLTEuNDgsLTIuNDQgLTAuNzQ2NywtMC42MTQgLTEuNjUzNCwtMC45MiAtMi43MjAxLC0wLjkyIC0xLjEyLDAgLTIuMDM5OSwwLjI5MyAtMi43NTk5LDAuODggLTAuNjkzNCwwLjU4NiAtMS4xMzM0LDEuNDEzIC0xLjMyLDIuNDggeiBtIC04LjQ4LDQuMiBjIDAsMy4xMiAxLjQ2NjYsNC42OCA0LjQsNC42OCAxLjU3MzMsMCAyLjc1OTksLTAuNjQgMy41NTk5LC0xLjkyIGggNy4wMDAxIGMgLTEuNDEzNCw0LjY5MyAtNC45NDY3LDcuMDQgLTEwLjYsNy4wNCAtMS43MzM0LDAgLTMuMzIwMSwtMC4yNTQgLTQuNzYwMSwtMC43NiAtMS40NCwtMC41MzQgLTIuNjc5OSwtMS4yOCAtMy43MTk5LC0yLjI0IC0xLjAxMzQsLTAuOTYgLTEuOCwtMi4xMDcgLTIuMzYsLTMuNDQgLTAuNTYsLTEuMzM0IC0wLjg0LC0yLjgyNyAtMC44NCwtNC40OCAwLC0xLjcwNyAwLjI2NjYsLTMuMjQgMC44LC00LjYgMC41MzMzLC0xLjM4NyAxLjI5MzMsLTIuNTYgMi4yNzk5LC0zLjUyIDAuOTg2NywtMC45NiAyLjE3MzQsLTEuNjk0IDMuNTYwMSwtMi4yIDEuNDEzMywtMC41MzQgMywtMC44IDQuNzYsLTAuOCAxLjczMzMsMCAzLjI5MzMsMC4yNjYgNC42OCwwLjggMS4zODY2LDAuNTA2IDIuNTYsMS4yNTMgMy41MTk5LDIuMjQgMC45NjAxLDAuOTg2IDEuNjkzNCwyLjIgMi4yMDAxLDMuNjQgMC41MDY2LDEuNDEzIDAuNzYsMy4wMTMgMC43Niw0LjggdiAwLjc2IHoiCiAgICAgICAgIGZpbGw9IiMxMzE5MmYiCiAgICAgICAgIGlkPSJwYXRoNi04IiAvPjxwYXRoCiAgICAgICAgIGQ9Ik0gOTQuODM5NywxMzMuNDggViAxNTQgaCAtNy4yNCB2IC0yMC41MiB6IG0gLTcuNzIsLTcuODggYyAwLC0wLjU2IDAuMTA2NywtMS4wOCAwLjMyLC0xLjU2IDAuMjEzMywtMC41MDcgMC41MDY3LC0wLjk0NyAwLjg4LC0xLjMyIDAuMzczMywtMC4zNzQgMC44LC0wLjY2NyAxLjI4LC0wLjg4IDAuNTA2NywtMC4yMTQgMS4wNCwtMC4zMiAxLjYsLTAuMzIgMC41NiwwIDEuMDgsMC4xMDYgMS41NiwwLjMyIDAuNTA2NywwLjIxMyAwLjk0NjcsMC41MDYgMS4zMiwwLjg4IDAuMzczMywwLjM3MyAwLjY2NjcsMC44MTMgMC44OCwxLjMyIDAuMjEzMywwLjQ4IDAuMzIsMSAwLjMyLDEuNTYgMCwwLjU2IC0wLjEwNjcsMS4wOTMgLTAuMzIsMS42IC0wLjIxMzMsMC40OCAtMC41MDY3LDAuOTA2IC0wLjg4LDEuMjggLTAuMzczMywwLjM3MyAtMC44MTMzLDAuNjY2IC0xLjMyLDAuODggLTAuNDgsMC4yMTMgLTEsMC4zMiAtMS41NiwwLjMyIC0wLjU2LDAgLTEuMDkzMywtMC4xMDcgLTEuNiwtMC4zMiAtMC40OCwtMC4yMTQgLTAuOTA2NywtMC41MDcgLTEuMjgsLTAuODggLTAuMzczMywtMC4zNzQgLTAuNjY2NywtMC44IC0wLjg4LC0xLjI4IC0wLjIxMzMsLTAuNTA3IC0wLjMyLC0xLjA0IC0wLjMyLC0xLjYgeiIKICAgICAgICAgZmlsbD0iIzEzMTkyZiIKICAgICAgICAgaWQ9InBhdGg3LTMiIC8+PHBhdGgKICAgICAgICAgZD0ibSAxMDQuOTA3LDE0My42NCBjIDAsMC42NjYgMC4xMiwxLjI5MyAwLjM2LDEuODggMC4yNCwwLjU2IDAuNTYsMS4wNTMgMC45NiwxLjQ4IDAuNDI3LDAuNDI2IDAuOTIsMC43NiAxLjQ4LDEgMC41ODcsMC4yNCAxLjIxNCwwLjM2IDEuODgsMC4zNiAwLjY0LDAgMS4yNCwtMC4xMiAxLjgsLTAuMzYgMC41ODcsLTAuMjQgMS4wOCwtMC41NzQgMS40OCwtMSAwLjQyNywtMC40MjcgMC43NiwtMC45MiAxLC0xLjQ4IDAuMjY3LC0wLjU4NyAwLjQsLTEuMiAwLjQsLTEuODQgMCwtMC42NjcgLTAuMTMzLC0xLjI4IC0wLjQsLTEuODQgLTAuMjQsLTAuNTYgLTAuNTczLC0xLjA1NCAtMSwtMS40OCAtMC40MjYsLTAuNDI3IC0wLjkzMywtMC43NiAtMS41MiwtMSAtMC41NiwtMC4yNCAtMS4xNDYsLTAuMzYgLTEuNzYsLTAuMzYgLTAuNjQsMCAtMS4yNCwwLjEzMyAtMS44LDAuNCAtMC41NiwwLjI0IC0xLjA1MywwLjU3MyAtMS40OCwxIC0wLjQyNiwwLjQgLTAuNzczLDAuODggLTEuMDQsMS40NCAtMC4yNCwwLjU2IC0wLjM2LDEuMTYgLTAuMzYsMS44IHogbSAxNi4yNCwtMTAuMTYgdiAxOS4xMiBjIDAsMS4xNDYgLTAuMDY2LDIuMTczIC0wLjIsMy4wOCAtMC4xMzMsMC45MDYgLTAuMzIsMS43MDYgLTAuNTYsMi40IC0wLjMyLDAuODggLTAuODI2LDEuNjkzIC0xLjUyLDIuNDQgLTAuNjY2LDAuNzczIC0xLjQ4LDEuNDQgLTIuNDQsMiAtMC45NiwwLjU2IC0yLjA1MywxIC0zLjI4LDEuMzIgLTEuMiwwLjMyIC0yLjUwNiwwLjQ4IC0zLjkyLDAuNDggLTEuNiwwIC0zLjA2NiwtMC4yIC00LjQsLTAuNiAtMS4zMzMsLTAuNCAtMi41MDYsLTAuOTYgLTMuNTIsLTEuNjggLTAuOTg2LC0wLjY5NCAtMS43OTk4LC0xLjUyIC0yLjQzOTgsLTIuNDggLTAuNjQsLTAuOTM0IC0xLjA2NjcsLTEuOTYgLTEuMjgsLTMuMDggaCA4LjE1OTggYyAwLjUwNywxLjM2IDEuNjU0LDIuMDQgMy40NCwyLjA0IDEuNTIsMCAyLjY4LC0wLjQyNyAzLjQ4LC0xLjI4IDAuODI3LC0wLjg1NCAxLjI0LC0yLjA0IDEuMjQsLTMuNTYgdiAtMS45NiBjIC0wLjUzMywwLjUwNiAtMS4wNTMsMC45MzMgLTEuNTYsMS4yOCAtMC40OCwwLjMyIC0wLjk3MywwLjU4NiAtMS40OCwwLjggLTAuNTA2LDAuMjEzIC0xLjA0LDAuMzYgLTEuNiwwLjQ0IC0wLjU2LDAuMTA2IC0xLjE3MywwLjE2IC0xLjg0LDAuMTYgLTEuNDY2LDAgLTIuODEzLC0wLjI1NCAtNC4wNCwtMC43NiAtMS4yMjYsLTAuNTA3IC0yLjI5MywtMS4yMTQgLTMuMiwtMi4xMiAtMC44Nzk4LC0wLjkwNyAtMS41NzMxLC0xLjk4NyAtMi4wNzk4LC0zLjI0IC0wLjQ4LC0xLjI4IC0wLjcyLC0yLjY5NCAtMC43MiwtNC4yNCAwLC0xLjU3NCAwLjI2NjcsLTMuMDI3IDAuOCwtNC4zNiAwLjUzMzMsLTEuMzYgMS4yNTMzLC0yLjUzNCAyLjE1OTgsLTMuNTIgMC45MzQsLTEuMDE0IDIuMDI3LC0xLjggMy4yOCwtMi4zNiAxLjI4LC0wLjU4NyAyLjY2NywtMC44OCA0LjE2LC0wLjg4IDIuNDI3LDAgNC40NjcsMC45MDYgNi4xMiwyLjcyIHYgLTIuMTYgeiIKICAgICAgICAgZmlsbD0iIzEzMTkyZiIKICAgICAgICAgaWQ9InBhdGg4LTgiIC8+PHBhdGgKICAgICAgICAgZD0ibSAxMjQuMDc4LDEyMC44IGggNy4yNCB2IDE1LjI4IGMgMC45ODYsLTEuMiAxLjk4NiwtMiAzLC0yLjQgMS4wMTMsLTAuNDI3IDIuMiwtMC42NCAzLjU2LC0wLjY0IDIuNTg2LDAgNC41MzMsMC43MiA1Ljg0LDIuMTYgMS4zMzMsMS40MTMgMiwzLjMzMyAyLDUuNzYgViAxNTQgaCAtNy4yNCB2IC0xMC4zNiBjIDAsLTEuMDQgLTAuMDgsLTEuODggLTAuMjQsLTIuNTIgLTAuMTYsLTAuNjQgLTAuNDI3LC0xLjEzNCAtMC44LC0xLjQ4IC0wLjY0LC0wLjU2IC0xLjQxNCwtMC44NCAtMi4zMiwtMC44NCAtMS4yMjcsMCAtMi4xNzQsMC4zNzMgLTIuODQsMS4xMiAtMC42NCwwLjcyIC0wLjk2LDEuNzYgLTAuOTYsMy4xMiBWIDE1NCBoIC03LjI0IHoiCiAgICAgICAgIGZpbGw9IiMxMzE5MmYiCiAgICAgICAgIGlkPSJwYXRoOS0xIiAvPjxwYXRoCiAgICAgICAgIGQ9Ik0gMTU3LjUyLDEzOS41MiBWIDE1NCBoIC03LjI0IHYgLTE0LjQ4IGggLTIuNCB2IC02LjA0IGggMi40IHYgLTYuMTYgaCA3LjI0IHYgNi4xNiBoIDQuMTIgdiA2LjA0IHoiCiAgICAgICAgIGZpbGw9IiMxMzE5MmYiCiAgICAgICAgIGlkPSJwYXRoMTAtNSIgLz48cGF0aAogICAgICAgICBkPSJtIDE4MS4xMjIsMTMwLjQ4IGggLTkuNDQgdiA1LjA0IGggOC42IHYgNi42NCBoIC04LjYgViAxNTQgaCAtNy44NCB2IC0zMC4xNiBoIDE3LjI4IHoiCiAgICAgICAgIGZpbGw9IiMxMzE5MmYiCiAgICAgICAgIGlkPSJwYXRoMTEtMyIgLz48cGF0aAogICAgICAgICBkPSJtIDE5MC4wNDMsMTQzLjY0IGMgMCwwLjY5MyAwLjEyLDEuMzMzIDAuMzYsMS45MiAwLjI2NiwwLjU2IDAuNiwxLjA1MyAxLDEuNDggMC40MjYsMC40MjYgMC45MiwwLjc2IDEuNDgsMSAwLjU4NiwwLjI0IDEuMiwwLjM2IDEuODQsMC4zNiAwLjY0LDAgMS4yNCwtMC4xMiAxLjgsLTAuMzYgMC41ODYsLTAuMjQgMS4wOCwtMC41NzQgMS40OCwtMSAwLjQyNiwtMC40MjcgMC43NiwtMC45MiAxLC0xLjQ4IDAuMjY2LC0wLjU4NyAwLjQsLTEuMjE0IDAuNCwtMS44OCAwLC0wLjY0IC0wLjEzNCwtMS4yNCAtMC40LC0xLjggLTAuMjQsLTAuNTg3IC0wLjU3NCwtMS4wOTQgLTEsLTEuNTIgLTAuNCwtMC40MjcgLTAuODk0LC0wLjc2IC0xLjQ4LC0xIC0wLjU2LC0wLjI0IC0xLjE2LC0wLjM2IC0xLjgsLTAuMzYgLTAuNjQsMCAtMS4yNTQsMC4xMiAtMS44NCwwLjM2IC0wLjU2LDAuMjQgLTEuMDU0LDAuNTczIC0xLjQ4LDEgLTAuNCwwLjQyNiAtMC43MzQsMC45MiAtMSwxLjQ4IC0wLjI0LDAuNTYgLTAuMzYsMS4xNiAtMC4zNiwxLjggeiBtIC03LjY0LC0wLjA4IGMgMCwtMS41MiAwLjMwNiwtMi45MzQgMC45MiwtNC4yNCAwLjYxMywtMS4zMzQgMS40NjYsLTIuNDggMi41NiwtMy40NCAxLjA5MywtMC45ODcgMi4zODYsLTEuNzYgMy44OCwtMi4zMiAxLjUyLC0wLjU2IDMuMTczLC0wLjg0IDQuOTYsLTAuODQgMS43NiwwIDMuMzg2LDAuMjggNC44OCwwLjg0IDEuNTIsMC41MzMgMi44MjYsMS4yOTMgMy45MiwyLjI4IDEuMTIsMC45NiAxLjk4NiwyLjEyIDIuNiwzLjQ4IDAuNjEzLDEuMzMzIDAuOTIsMi44MTMgMC45Miw0LjQ0IDAsMS42MjYgLTAuMzIsMy4xMiAtMC45Niw0LjQ4IC0wLjYxNCwxLjMzMyAtMS40NjcsMi40OTMgLTIuNTYsMy40OCAtMS4wOTQsMC45NiAtMi40MTQsMS43MDYgLTMuOTYsMi4yNCAtMS41MiwwLjUzMyAtMy4xNzQsMC44IC00Ljk2LDAuOCAtMS43NiwwIC0zLjM4NywtMC4yNjcgLTQuODgsLTAuOCAtMS40OTQsLTAuNTM0IC0yLjc4NywtMS4yOTQgLTMuODgsLTIuMjggLTEuMDY3LC0wLjk4NyAtMS45MDcsLTIuMTYgLTIuNTIsLTMuNTIgLTAuNjE0LC0xLjM4NyAtMC45MiwtMi45MiAtMC45MiwtNC42IHoiCiAgICAgICAgIGZpbGw9IiMxMzE5MmYiCiAgICAgICAgIGlkPSJwYXRoMTItNSIgLz48cGF0aAogICAgICAgICBkPSJtIDIxNC44MDMsMTQyLjg4IC04LjMyLC05LjQgaCA5LjQ0IGwgMy41Miw0LjI0IDMuNiwtNC4yNCBoIDkuNDQgbCAtOC41Miw5LjQgMTAuMjgsMTEuMTIgaCAtOS42IGwgLTUuMjQsLTYuMDggLTUuMjgsNi4wOCBoIC05LjU2IHoiCiAgICAgICAgIGZpbGw9IiMxMzE5MmYiCiAgICAgICAgIGlkPSJwYXRoMTMtNCIgLz48L2c+PGcKICAgICAgIGlkPSJnNDAiCiAgICAgICB0cmFuc2Zvcm09Im1hdHJpeCgxLjY2NjY2NjYsMCwwLDEuNjY2NjY2Niw2Ni4yMDY4MTUsMjM0LjQwOTg2KSI+PHBhdGgKICAgICAgICAgZD0ibSA0OCwyNi41IGMgLTEzLjI1NDc4NywwIC0yNCwxMC43NDUyMTMgLTI0LDI0IDAuMDI0LDguMjU1MzkyIDQuMjg5NTc2LDE1LjkyMDAyIDExLjI5Mjk2OSwyMC4yOTEwMTYgMC42NzEwOTksLTAuNDg0Mzc1IDEuMzE0NjY5LC0xLjAxMjQwNyAxLjkyOTY4NywtMS41ODAwNzkgMS44NDQ2MTMsLTEuNzAyODM1IDMuNDE5NjMyLC0zLjc3NDM0OCA0LjYwMTU2MywtNi4xNzM4MjggbCA0Ljk5NDE0LC0xMC4xMzY3MTggaCAtOS40Mjk2ODcgYyAtMC4xMjM2LDAgLTAuMjQ0NzU2LC0wLjAzNjg3IC0wLjM0NzY1NiwtMC4xMDU0NjkgbCAtMi42Nzk2ODgsLTEuNzg3MTEgQyAzNC4xMzMzMjgsNTAuODU1OTEzIDM0LjIzOTY3Miw1MC41IDM0LjUxMzY3Miw1MC41IGggOS43OTQ5MjIgYyAzLjQ3OTQ5NiwwIDUuMzAwNDE2LC00LjEzNjE3NCAyLjk0OTIxOCwtNi43MDExNzIgLTAuMDk4OCwtMC4xMDc3IDAuMDIyLC0wLjI3MzEzNyAwLjE1NDI5NywtMC4yMTA5MzcgbCAzLjI0MjE4OCwxLjUyNTM5IDMuNTIxNDg0LC03LjE1MDM5IGMgMC45OTAzNzQsLTIuMDEwNjIzIDIuMjUzNzI4LC0zLjc5MTk0NSAzLjcyMjY1NiwtNS4zMTgzNiAwLjg4MTA4NywtMC45MTU0NDQgMS44MzYyODQsLTEuNzM5MzQgMi44NDk2MSwtMi40NjY3OTcgMCwwIDAuMDAyLDAgMC4wMDIsMCBDIDYzLjUwMzY5NywyOC4yMDA5MzYgNjYuNjkwOTIyLDI2Ljk0NTMgNzAuMDExNzE5LDI2LjUgSCA1Ni4yMjA3MDMgWiIKICAgICAgICAgc3R5bGU9ImZpbGw6dXJsKCNyYWRpYWxHcmFkaWVudDQ3KSIKICAgICAgICAgaWQ9InBhdGgzMiIgLz48cGF0aAogICAgICAgICBkPSJtIDYwLjc1LDMwLjE3NzczNCBjIDAsMCAtMC4wMDIsMCAtMC4wMDIsMCAtMS4wMTMzMjYsMC43Mjc0NTcgLTEuOTY2NTY5LDEuNTUxMzUzIC0yLjg0NzY1NiwyLjQ2Njc5NyAtMS4xNzUxMjcsMS4yMjExMTIgLTIuMjE5ODg2LDIuNjA0NTc5IC0zLjA5NzY1Nyw0LjEzODY3MiAtMC4yMTk0MzUsMC4zODM1MjQgLTAuNDI4ODc4LDAuNzc3NTYzIC0wLjYyNjk1MywxLjE3OTY4OCBsIC0zLjUyMTQ4NCw3LjE1MDM5IDE1LjU3NDIxOSw3LjMzMDA3OCBjIDAuMjMxOTk5LDAuMTA5MiAwLjE1NDczNywwLjQ1NzAzMiAtMC4xMDE1NjMsMC40NTcwMzIgSCA0Ni44MTgzNTkgbCAtNC45OTQxNCwxMC4xMzY3MTggYyAtMC4zOTQwNSwwLjc5OTk3NSAtMC44MzIxMDEsMS41NjM1OTIgLTEuMzA4NTk0LDIuMjg5MDYzIC0wLjcxNDc0LDEuMDg4MTkzIC0xLjUxNzA1NSwyLjA5MTU5MyAtMi4zOTI1NzgsMy4wMDM5MDYgLTAuMjkxNTE4LDAuMzAzNzczIC0wLjU5MzIzOSwwLjU5NzMxNiAtMC45MDAzOTEsMC44ODA4NTkgLTAuNjE1MDE4LDAuNTY3NjcyIC0xLjI1ODU4OCwxLjA5NTcwNCAtMS45Mjk2ODcsMS41ODAwNzkgQyAzMi41MzAxNzIsNzIuNzg1MDE0IDI5LjMyNzMzMSw3NC4wNTIgMjUuOTkwMjM0LDc0LjUgSCAzOS43NzkyOTcgNDggYyAxMy4yNTQ3ODcsMCAyNCwtMTAuNzQ1MzEzIDI0LC0yNCBDIDcxLjk5NjIsNDIuMjQxODUxIDY3Ljc0NjE3MiwzNC41NjUxNzQgNjAuNzUsMzAuMTc3NzM0IFoiCiAgICAgICAgIHN0eWxlPSJmaWxsOnVybCgjcmFkaWFsR3JhZGllbnQzNSkiCiAgICAgICAgIGlkPSJwYXRoMzMiIC8+PHBhdGgKICAgICAgICAgZD0ibSA0Ny4zNjMyODEsNDMuNTc0MjE5IGMgLTAuMTEwNDAxLC0wLjAwODUgLTAuMTkxOTE4LDAuMTMwMzcyIC0wLjEwNTQ2OSwwLjIyNDYwOSBDIDQ5LjYwOTAwNSw0Ni4zNjM4MiA0Ny43ODgwODMsNTAuNSA0NC4zMDg1OTQsNTAuNSBoIC05Ljc5NDkyMiBjIC0wLjI3Mzk5OSwwIC0wLjM4MDM0MywwLjM1NTkxMyAtMC4xNTIzNDQsMC41MDc4MTIgbCAyLjY3OTY4OCwxLjc4NzExIGMgMC4xMDI4OTksMC4wNjg2IDAuMjI0MDU2LDAuMTA1NDY5IDAuMzQ3NjU2LDAuMTA1NDY5IGggOS40Mjk2ODcgMTkuMzA4NTk0IGMgMC4yNTYyOTksMCAwLjMzMzU2MiwtMC4zNDc4MzIgMC4xMDE1NjMsLTAuNDU3MDMyIGwgLTE1LjU3NDIxOSwtNy4zMzAwNzggLTMuMjQyMTg4LC0xLjUyNTM5IGMgLTAuMDE2NTQsLTAuMDA3OCAtMC4wMzMwNiwtMC4wMTI0NSAtMC4wNDg4MywtMC4wMTM2NyB6IgogICAgICAgICBzdHlsZT0iZmlsbDojZmZmZmZmIgogICAgICAgICBpZD0icGF0aDM0IiAvPjxwYXRoCiAgICAgICAgIGQ9Im0gNDgsMjYuNSBjIC0xMy4yNTQ3ODcsMCAtMjQsMTAuNzQ1MjEzIC0yNCwyNCAwLjAyNCw4LjI1NTM5MiA0LjI4OTU3NiwxNS45MjAwMiAxMS4yOTI5NjksMjAuMjkxMDE2IDAuNjcxMDk5LC0wLjQ4NDM3NSAxLjMxNDY2OSwtMS4wMTI0MDcgMS45Mjk2ODcsLTEuNTgwMDc5IDEuODQ0NjEzLC0xLjcwMjgzNSAzLjQxOTYzMiwtMy43NzQzNDggNC42MDE1NjMsLTYuMTczODI4IGwgNC45OTQxNCwtMTAuMTM2NzE4IGggLTkuNDI5Njg3IGMgLTAuMTIzNiwwIC0wLjI0NDc1NiwtMC4wMzY4NyAtMC4zNDc2NTYsLTAuMTA1NDY5IGwgLTIuNjc5Njg4LC0xLjc4NzExIEMgMzQuMTMzMzI4LDUwLjg1NTkxMyAzNC4yMzk2NzIsNTAuNSAzNC41MTM2NzIsNTAuNSBoIDkuNzk0OTIyIGMgMy40Nzk0OTYsMCA1LjMwMDQxNiwtNC4xMzYxNzQgMi45NDkyMTgsLTYuNzAxMTcyIC0wLjA5ODgsLTAuMTA3NyAwLjAyMiwtMC4yNzMxMzcgMC4xNTQyOTcsLTAuMjEwOTM3IGwgMy4yNDIxODgsMS41MjUzOSAzLjUyMTQ4NCwtNy4xNTAzOSBjIDAuOTkwMzc0LC0yLjAxMDYyMyAyLjI1MzcyOCwtMy43OTE5NDUgMy43MjI2NTYsLTUuMzE4MzYgMC44ODEwODcsLTAuOTE1NDQ0IDEuODM2Mjg0LC0xLjczOTM0IDIuODQ5NjEsLTIuNDY2Nzk3IDAsMCAwLjAwMiwwIDAuMDAyLDAgQyA2My41MDM2OTcsMjguMjAwOTM2IDY2LjY5MDkyMiwyNi45NDUzIDcwLjAxMTcxOSwyNi41IEggNTYuMjIwNzAzIFoiCiAgICAgICAgIHN0eWxlPSJmaWxsOnVybCgjcmFkaWFsR3JhZGllbnQzNCkiCiAgICAgICAgIGlkPSJwYXRoNDAiIC8+PC9nPjwvZz48L3N2Zz4K"
+
+st.set_page_config(page_title="FreightFox Intelligence", page_icon="◈",
+                   layout="wide", initial_sidebar_state="collapsed")
+
+CSS = """
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;1,400&family=DM+Mono:wght@400;500&display=swap');
+
+:root {
+  --glass-white: rgba(255, 255, 255, 0.08);
+  --glass-white-md: rgba(255, 255, 255, 0.15);
+  --glass-white-lg: rgba(255, 255, 255, 0.22);
+  --glass-dark: rgba(0, 0, 0, 0.18);
+  --glass-dark-md: rgba(0, 0, 0, 0.28);
+  --glass-border: rgba(255, 255, 255, 0.2);
+  --glass-border-subtle: rgba(255, 255, 255, 0.08);
+  --glass-border-bright: rgba(255, 255, 255, 0.4);
+  --blur-sm: blur(8px);
+  --blur-md: blur(18px);
+  --blur-lg: blur(32px);
+  --blur-xl: blur(60px);
+  --shadow-glass: 0 8px 32px rgba(0, 0, 0, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.3);
+  --shadow-float: 0 20px 60px rgba(0, 0, 0, 0.4), 0 4px 16px rgba(0, 0, 0, 0.2);
+  --reflection-top: linear-gradient(135deg, rgba(255, 255, 255, 0.3) 0%, rgba(255, 255, 255, 0) 50%);
+  --reflection-inner: inset 0 1px 1px rgba(255, 255, 255, 0.35), inset 0 -1px 1px rgba(0, 0, 0, 0.1);
+  --accent-aqua: #5ee7df; --accent-violet: #b490f5; --accent-rose: #f7a8c4; --accent-amber: #ffd27f;
+  --color-bg: #0b0e1a; --color-text: #ffffff;
+  
+  --rule: rgba(255,255,255,0.12); --rule2: rgba(255,255,255,0.25);
+  --ink: #fff; --ink2: rgba(255,255,255,0.7); --ink3: rgba(255,255,255,0.5);
+  --blue: #5ee7df;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body, .stApp, [data-testid="stAppViewContainer"] {
+  background: var(--color-bg) !important; font-family: 'Plus Jakarta Sans', sans-serif !important; color: var(--color-text) !important;
+}
+#MainMenu, footer, header, [data-testid="stToolbar"], [data-testid="stDecoration"],
+[data-testid="collapsedControl"], [data-testid="stSidebar"], .viewerBadge_container__1QSob { display: none !important; }
+
+.block-container { padding: 0 60px !important; max-width: 1400px !important; margin: 0 auto !important; z-index: 10; position: relative; }
+[data-testid="stVerticalBlock"], [data-testid="stHorizontalBlock"] { gap: 0 !important; }
+
+.topbar, .hero-wrap, .footer, .sh { margin-left: -60px !important; margin-right: -60px !important; }
+
+.topbar {
+  background: var(--glass-white); backdrop-filter: var(--blur-md); -webkit-backdrop-filter: var(--blur-md);
+  border-bottom: 1px solid var(--glass-border); padding: 0 60px; height: 72px; display: flex; align-items: center; justify-content: space-between;
+  position: sticky; top: 0; z-index: 1000; width: calc(100% + 120px); box-shadow: var(--shadow-glass);
+}
+.topbar img { height: 36px; }
+.topbar-pill {
+  background: rgba(94, 231, 223, 0.2); color: var(--accent-aqua); font-family: 'DM Mono', monospace;
+  font-size: 0.65rem; letter-spacing: 0.1em; text-transform: uppercase; padding: 6px 14px; border-radius: 100px; font-weight: 600; border: 1px solid rgba(94, 231, 223, 0.4);
+}
+
+.scene { position: fixed; inset: 0; z-index: 0; overflow: hidden; pointer-events: none; }
+.scene__blob { position: absolute; border-radius: 50%; filter: blur(80px); opacity: 0.55; animation: blob-drift var(--dur, 18s) ease-in-out infinite alternate; }
+.scene__blob--1 { width: 700px; height: 700px; background: radial-gradient(circle, #5ee7df, #3b82f6); top: -200px; left: -150px; --dur: 22s; }
+.scene__blob--2 { width: 600px; height: 600px; background: radial-gradient(circle, #b490f5, #ec4899); bottom: -200px; right: -100px; --dur: 17s; animation-delay: -8s; }
+.scene__blob--3 { width: 400px; height: 400px; background: radial-gradient(circle, #ffd27f, #f7a8c4); top: 40%; left: 50%; --dur: 25s; animation-delay: -13s; }
+@keyframes blob-drift {
+  0% { transform: translate(0, 0) scale(1); }
+  33% { transform: translate(60px, -40px) scale(1.08); }
+  66% { transform: translate(-40px, 60px) scale(0.94); }
+  100% { transform: translate(30px, 30px) scale(1.04); }
+}
+
+.cp, .sg-cell, .sig, .price-card-fw, .hs {
+  backdrop-filter: var(--blur-md); -webkit-backdrop-filter: var(--blur-md);
+  background: var(--glass-white); border: 1px solid var(--glass-border);
+  box-shadow: var(--shadow-glass); position: relative; overflow: hidden;
+  border-radius: 24px; padding: 32px; transition: transform 0.3s cubic-bezier(0.22, 0.68, 0, 1.2), box-shadow 0.3s, background 0.3s;
+}
+.cp::before, .sg-cell::before, .sig::before, .price-card-fw::before, .hs::before {
+  content: ""; position: absolute; inset: 0; background: var(--reflection-top); pointer-events: none; border-radius: inherit; z-index: 1;
+}
+.cp::after, .sg-cell::after, .sig::after, .price-card-fw::after, .hs::after {
+  content: ""; position: absolute; inset: -1px; border-radius: inherit;
+  background: linear-gradient(135deg, rgba(255,255,255,0.22) 0%, rgba(255,255,255,0) 40%, rgba(255,255,255,0.08) 100%);
+  opacity: 0; transition: opacity 0.3s; pointer-events: none; z-index: 2;
+}
+.cp:hover, .sg-cell:hover, .sig:hover, .price-card-fw:hover, .hs:hover { transform: translateY(-6px) scale(1.01); box-shadow: var(--shadow-float); background: var(--glass-white-md); }
+.cp:hover::after, .sg-cell:hover::after, .sig:hover::after, .price-card-fw:hover::after, .hs:hover::after { opacity: 1; }
+
+.hero-wrap { padding: 64px 60px 48px; position: relative; width: calc(100% + 120px); }
+.hero-inner { position: relative; z-index: 1; display: flex; flex-direction: column; gap: 40px; }
+.hero-h1 { font-size: 4.2rem; font-weight: 800; color: #fff; line-height: 1.05; letter-spacing: -0.04em; margin-bottom: 24px; }
+.hero-h1 em { font-style: normal; color: var(--accent-aqua); }
+.hero-sub { font-size: 1.1rem; line-height: 1.6; color: rgba(255,255,255,0.7); max-width: 640px; }
+
+.hero-stats { display: flex; gap: 20px; flex-wrap: wrap; }
+.hs { flex: 1; min-width: 200px; }
+.hs-val { font-size: 2.2rem; font-weight: 700; color: #fff; line-height: 1; margin-bottom: 8px; position: relative; z-index: 10; }
+.hs-lbl { font-family: 'DM Mono', monospace; font-size: 0.65rem; letter-spacing: 0.12em; text-transform: uppercase; color: rgba(255,255,255,0.6); position: relative; z-index: 10; }
+
+.stTabs [data-baseweb="tab-list"] { 
+  background: rgba(0,0,0,0.2) !important; border-bottom: 1px solid var(--glass-border) !important; 
+  gap: 32px !important; padding: 0 60px !important; margin: 0 -60px !important; height: 64px !important;
+  backdrop-filter: var(--blur-sm) !important;
+}
+.stTabs [data-baseweb="tab"] { 
+  background: transparent !important; color: rgba(255,255,255,0.5) !important; 
+  font-size: 0.9rem !important; font-weight: 500 !important; 
+  height: 64px !important; padding: 0 !important; border: none !important;
+}
+.stTabs [data-baseweb="tab"][aria-selected="true"] { 
+  color: var(--accent-aqua) !important; border-bottom: 2px solid var(--accent-aqua) !important; 
+}
+
+.sh { padding: 64px 60px; position: relative; background: rgba(0,0,0,0.1); border-bottom: 1px solid var(--glass-border); }
+.sh-title { font-size: 2.8rem; font-weight: 800; color: #fff; line-height: 1.1; letter-spacing: -0.03em; }
+.sh-body { font-size: 1.05rem; color: rgba(255,255,255,0.7); margin-top: 16px; line-height: 1.6; max-width: 800px; }
+
+.pad { padding: 32px 0 64px; }
+.sec-label { font-family: 'DM Mono', monospace; font-size: 0.75rem; font-weight: 600; letter-spacing: 0.15em; text-transform: uppercase; color: rgba(255,255,255,0.6); margin: 48px 0 24px; display: flex; align-items: center; gap: 16px; }
+.sec-label::after { content: ''; flex: 1; height: 1px; background: var(--glass-border-subtle); }
+
+.stSelectbox label, .stSlider label { font-size: 0.85rem !important; font-weight: 600 !important; color: rgba(255,255,255,0.8) !important; margin-bottom: 12px !important; }
+.stSelectbox > div > div { background: rgba(255,255,255,0.06) !important; color: #fff !important; border: 1px solid var(--glass-border) !important; border-radius: 12px !important; height: 52px !important; backdrop-filter: var(--blur-sm) !important; }
+.stSelectbox > div > div > div[data-baseweb="select"] { color: #fff !important; }
+.stSlider div[data-testid="stThumbValue"] { color: #fff !important; }
+
+.stButton > button { 
+  background: linear-gradient(135deg, rgba(94, 231, 223, 0.4) 0%, rgba(59, 130, 246, 0.4) 100%) !important;
+  border: 1px solid rgba(94, 231, 223, 0.4) !important;
+  box-shadow: 0 4px 24px rgba(94, 231, 223, 0.2), var(--reflection-inner) !important;
+  color: #fff !important; font-size: 1rem !important; font-weight: 600 !important; 
+  border-radius: 14px !important; padding: 20px 40px !important; 
+  transition: all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1) !important; margin-top: 24px !important;
+  backdrop-filter: var(--blur-md) !important; -webkit-backdrop-filter: var(--blur-md) !important;
+}
+.stButton > button:hover { transform: translateY(-2px) !important; box-shadow: 0 8px 36px rgba(94, 231, 223, 0.4), var(--reflection-inner) !important; background: linear-gradient(135deg, rgba(94, 231, 223, 0.6) 0%, rgba(59, 130, 246, 0.6) 100%) !important; }
+
+.cp { margin-bottom: 40px; }
+.cp-title { font-size: 1.25rem; font-weight: 700; color: #fff; margin-bottom: 4px; position: relative; z-index: 10; }
+.cp-sub { font-family: 'DM Mono', monospace; font-size: 0.7rem; letter-spacing: 0.05em; color: rgba(255,255,255,0.6); margin-bottom: 32px; text-transform: uppercase; position: relative; z-index: 10; }
+
+.sg { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; margin-bottom: 40px; }
+.sg-val { font-size: 2.2rem; font-weight: 700; color: #fff; margin-bottom: 8px; position: relative; z-index: 10; }
+.sg-lbl { font-family: 'DM Mono', monospace; font-size: 0.65rem; letter-spacing: 0.12em; text-transform: uppercase; color: rgba(255,255,255,0.6); margin-bottom: 12px; position: relative; z-index: 10; }
+.sg-note { font-size: 0.8rem; color: rgba(255,255,255,0.7); line-height: 1.4; position: relative; z-index: 10; }
+
+.sig { margin-bottom: 20px; }
+.sig-v { font-size: 1.8rem; font-weight: 700; color: #fff; margin-bottom: 4px; position: relative; z-index: 10; }
+.sig-l { font-family: 'DM Mono', monospace; font-size: 0.7rem; letter-spacing: 0.1em; text-transform: uppercase; color: rgba(255,255,255,0.6); position: relative; z-index: 10; }
+
+.price-card-fw { padding: 0 !important; margin-top: 40px; }
+.pc-header { background: rgba(0,0,0,0.2); padding: 32px 48px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--glass-border); position: relative; z-index: 10; }
+.pc-route { font-size: 1.1rem; font-weight: 600; color: #fff; letter-spacing: -0.01em; position: relative; z-index: 10; }
+.pc-body { display: grid; grid-template-columns: 1.2fr 0.8fr; gap: 0; position: relative; z-index: 10; }
+.pc-price-area { padding: 64px 48px; border-right: 1px solid var(--glass-border); position: relative; z-index: 10; }
+.pc-figure-lg { font-size: 5.6rem; font-weight: 800; color: #fff; line-height: 1; letter-spacing: -0.05em; position: relative; z-index: 10; }
+.pc-sym-lg { font-size: 2.8rem; color: var(--accent-aqua); vertical-align: baseline; margin-right: 8px; }
+.pc-ci { margin-top: 24px; font-size: 1rem; color: rgba(255,255,255,0.7); position: relative; z-index: 10; }
+
+.pc-meta-area { padding: 48px; background: rgba(0,0,0,0.1); display: flex; flex-direction: column; gap: 32px; position: relative; z-index: 10; }
+.pc-meta-kpi-val { font-size: 1.5rem; font-weight: 700; color: #fff; }
+.pc-meta-kpi-lbl { font-family: 'DM Mono', monospace; font-size: 0.7rem; letter-spacing: 0.1em; text-transform: uppercase; color: rgba(255,255,255,0.6); margin-top: 4px; }
+
+::selection { background: var(--accent-violet); color: #fff; }
+::-webkit-scrollbar { width: 8px; }
+::-webkit-scrollbar-track { background: var(--color-bg); }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.3); border-radius: 10px; }
+
+.footer { padding: 60px; display: flex; flex-direction: column; align-items: center; gap: 24px; margin-top: 100px; border-top: 1px solid var(--glass-border); background: rgba(0,0,0,0.1); }
+.footer-meta { font-family: 'DM Mono', monospace; font-size: 0.75rem; color: rgba(255,255,255,0.5); text-align: center; line-height: 2; max-width: 800px; }
+
+@keyframes fadeUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+.fu { animation: fadeUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) both; }
+</style>
+"""
+
+st.markdown(CSS, unsafe_allow_html=True)
+st.markdown('<div class="scene" aria-hidden="true"><div class="scene__blob scene__blob--1"></div><div class="scene__blob scene__blob--2"></div><div class="scene__blob scene__blob--3"></div></div>', unsafe_allow_html=True)
+
+# ── CONSTANTS ──────────────────────────────────────────────────────────────────
+STATE_COORDS = {
+    'Maharashtra':(19.7515,75.7139),'Gujarat':(22.2587,71.1924),
+    'Karnataka':(15.3173,75.7139),'Tamil Nadu':(11.1271,78.6569),
+    'Telangana':(17.3850,78.4867),'Uttar Pradesh':(26.8467,80.9462),
+    'Kerala':(10.8505,76.2711),'Rajasthan':(27.0238,74.2179),
+    'West Bengal':(22.9868,87.8550),'Odisha':(20.9517,85.0985),
+    'Madhya Pradesh':(22.9734,78.6569),'Andhra Pradesh':(15.9129,79.7400),
+    'Assam':(26.2006,92.9376),'Haryana':(29.0588,76.0856),
+    'Punjab':(31.1471,75.3412),'Delhi':(28.7041,77.1025),
+    'New Delhi':(28.7041,77.1025),'Goa':(15.2993,74.1240),
+    'Jharkhand':(23.6102,85.2799),'Bihar':(25.0961,85.3131),
+    'Chhattisgarh':(21.2787,81.8661),'Uttarakhand':(30.0668,79.0193),
+}
+STATE_MAP = {s:s.upper().replace('NEW DELHI','DELHI') for s in STATE_COORDS}
+
+# ── City-level GPS coordinates (straight-line haversine distance) ──────────────
+CITY_COORDS = {
+    # Maharashtra
+    'Aurangabad':(19.8762,75.3433),'Pune':(18.5204,73.8567),'Mumbai':(19.0760,72.8777),
+    'Nashik':(19.9975,73.7898),'Nagpur':(21.1458,79.0882),'Bhiwandi':(19.2967,73.0587),
+    'Chakan':(18.7609,73.8600),'Wada':(19.6586,73.1626),'Nanded':(19.1383,77.3210),
+    'Nhava Sheva':(18.9486,72.9449),'Bhandup':(19.1606,72.9397),'Baramati':(18.1521,74.5773),
+    'Daund':(18.4624,74.5818),'Wagholi':(18.5793,73.9848),'Vasai':(19.3919,72.8397),
+    'Jalgaon':(21.0077,75.5626),'Satara':(17.6805,73.9878),'Akola':(20.7099,77.0082),
+    'Navi Mumbai':(19.0330,73.0297),'Taloja':(19.0340,73.0809),'Solapur':(17.6599,75.9064),
+    'Ulhasnagar':(19.2183,73.1557),'Turbhe':(19.0728,73.0206),'Wai':(17.9539,73.8978),
+    # Gujarat
+    'Ahmedabad':(23.0225,72.5714),'Valsad':(20.5992,72.9342),'Surat':(21.1702,72.8311),
+    'Ankleshwar':(21.6276,73.0001),'Halol':(22.5039,73.4726),'Goblej':(22.5503,72.3753),
+    'Kheda':(22.7507,72.6853),'Sanand':(22.9853,72.3698),'Hazira':(21.0870,72.6378),
+    'Vapi':(20.3739,72.9060),'Waghodia':(22.3378,73.2093),'Bharuch':(21.7051,72.9959),
+    'Viramgam':(23.1186,72.0292),'Vallabh Vidhyanagar':(22.5375,72.9270),
+    # Karnataka
+    'Bangalore':(12.9716,77.5946),'Bidadi':(12.8081,77.3885),'Mysuru':(12.2958,76.6394),
+    'Hubli':(15.3647,75.1240),'Gulbarga':(17.3297,76.8343),'Belgaum':(15.8497,74.4977),
+    'Bellary':(15.1394,76.9214),'Mangalore':(12.9141,74.8560),'Udupi':(13.3409,74.7421),
+    'Bidar':(17.9104,77.5199),'Hosur':(12.7409,77.8253),'Tumkur':(13.3379,77.1173),
+    'Whitefield':(12.9698,77.7500),'Yeshwantpur':(13.0241,77.5436),'Dharwad':(15.4589,75.0078),
+    # Tamil Nadu
+    'Chennai':(13.0827,80.2707),'Coimbatore':(11.0168,76.9558),'Gangaikondan':(8.7372,77.7176),
+    'Salem':(11.6643,78.1460),'Madurai':(9.9252,78.1198),'Vellore':(12.9165,79.1325),
+    'Trichy':(10.7905,78.7047),'Krishnagiri':(12.5186,78.2137),'Kanchipuram':(12.8185,79.6947),
+    'Tiruppur':(11.1075,77.3398),'Erode':(11.3410,77.7172),'Tirunelveli':(8.7139,77.7567),
+    'Pondicherry':(11.9416,79.8083),
+    # Telangana
+    'Hyderabad':(17.3850,78.4867),'Sangareddy':(17.6253,78.0877),'Warangal':(17.9689,79.5941),
+    'Zaheerabad':(17.6818,77.6073),'Wanaparthy':(16.3582,78.0399),
+    # Andhra Pradesh
+    'Vizag':(17.6868,83.2185),'Vijayawada':(16.5062,80.6480),'Chittoor':(13.2172,79.1003),
+    'Nellore':(14.4426,79.9865),'Srikalahasti':(13.7490,79.6998),'Guntur':(16.3067,80.4365),
+    'Kurnool':(15.8281,78.0373),'Tirupati':(13.6288,79.4192),
+    # Uttar Pradesh
+    'Lucknow':(26.8467,80.9462),'Hapur':(28.7301,77.7756),'Meerut':(28.9845,77.7064),
+    'Varanasi':(25.3176,82.9739),'Gorakhpur':(26.7606,83.3732),'Ghaziabad':(28.6692,77.4538),
+    'Kanpur':(26.4499,80.3319),'Agra':(27.1767,78.0081),'Unnao':(26.5490,80.4861),
+    # Kerala
+    'Cochin':(9.9312,76.2673),'Kochi':(9.9312,76.2673),'Ernakulam':(9.9816,76.2999),
+    'Thiruvananthapuram':(8.5241,76.9366),'Thrissur':(10.5276,76.2144),'Kozhikode':(11.2588,75.7804),
+    'Trivandrum':(8.5241,76.9366),'Trichur':(10.5276,76.2144),
+    # West Bengal
+    'Kolkata':(22.5726,88.3639),'Hooghly':(22.9010,88.3971),'Titagarh':(22.7376,88.3728),
+    # Rajasthan
+    'Neemrana':(27.9829,76.3842),'Jaipur':(26.9124,75.7873),'Udaipur':(24.5854,73.7125),
+    'Jodhpur':(26.2389,73.0243),
+    # Odisha
+    'Khordha':(20.1864,85.6167),'Bhubaneswar':(20.2961,85.8245),'Cuttack':(20.4625,85.8830),
+    # Madhya Pradesh
+    'Indore':(22.7196,75.8577),'Bhopal':(23.2599,77.4126),'Nagda':(23.4590,75.4141),
+    # Haryana
+    'Gurgaon':(28.4595,77.0266),'Ambala':(30.3782,76.7767),'Faridabad':(28.4089,77.3178),
+    'Sonepat':(28.9288,77.0208),'Dharuhera':(28.2108,76.8142),'Panipat':(29.3867,76.9719),
+    # Punjab
+    'Ludhiana':(30.9010,75.8573),'Amritsar':(31.6340,74.8723),'Zirakpur':(30.6453,76.8184),
+    # Delhi / NCR
+    'Delhi':(28.7041,77.1025),'New Delhi':(28.6139,77.2090),'Tughlakabad':(28.5001,77.2856),
+    # Assam
+    'Guwahati':(26.1445,91.7362),'Pamohi':(26.0400,91.6500),
+    # Jharkhand
+    'Ranchi':(23.3441,85.3096),
+    # Goa
+    'Goa':(15.2993,74.1240),
+    # Uttarakhand
+    'Haridwar':(29.9457,78.1642),'Dehradun':(30.3165,78.0322),
+    # Bihar
+    'Patna':(25.5941,85.1376),
+    # Chhattisgarh
+    'Raipur':(21.2514,81.6296),
+}
+VEHICLE_TYPES = [
+    '9 MT Open','16 MT Open','18 MT Open','21 MT Open','24 MT Open',
+    '32ft 18MT MAC','16 MT/32 ft Container','40ft Flat Bed Trailer 25MT',
+    '10MT_10 Pallet (One Way)','12MT_12 Pallet (Two Way)',
+]
+MONTH_NAMES = ['January','February','March','April','May','June',
+               'July','August','September','October','November','December']
+MONTH_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+
+INK='#F8FAFC'; BLUE='#3B82F6'; BLUE_LO='#93C5FD'; BLUE_HI='#1D4ED8'
+RED='#F87171'; AMBER='#FBBF24'; GRN='#34D399'; GREY='#94A3B8'
+
+PLOT = dict(
+    paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
+    font=dict(family="Plus Jakarta Sans, sans-serif", color='#F8FAFC', size=11),
+    margin=dict(l=4, r=8, t=8, b=0),
+    xaxis=dict(showgrid=True, gridcolor='rgba(255,255,255,0.08)', gridwidth=1,
+               linecolor='rgba(255,255,255,0.15)', zeroline=False,
+               tickfont=dict(size=9, color='rgba(255,255,255,0.6)', family='DM Mono, monospace')),
+    yaxis=dict(showgrid=True, gridcolor='rgba(255,255,255,0.08)', gridwidth=1,
+               linecolor='rgba(255,255,255,0.15)', zeroline=False,
+               tickfont=dict(size=9, color='rgba(255,255,255,0.6)', family='DM Mono, monospace')),
+    legend=dict(bgcolor='rgba(0,0,0,0)', bordercolor='rgba(255,255,255,0.1)', borderwidth=1,
+                font=dict(size=10, family='DM Mono, monospace')),
+)
+
+def hav(la1,lo1,la2,lo2):
+    R=6371; la1,lo1,la2,lo2=map(np.radians,[la1,lo1,la2,lo2])
+    d=la2-la1; e=lo2-lo1
+    a=np.sin(d/2)**2+np.cos(la1)*np.cos(la2)*np.sin(e/2)**2
+    return 2*R*np.arcsin(np.sqrt(a))
+
+def extract_cap(v):
+    m=re.search(r'(\d+(?:\.\d+)?)\s*MT',str(v),re.I)
+    return float(m.group(1)) if m else 16.0
+
+# ── DATA + MODEL ───────────────────────────────────────────────────────────────
+@st.cache_data(show_spinner=False)
+def load_data():
+    ewb = pd.read_csv('ewb_features_v2.csv', parse_dates=['date'])
+    rfq_raw = pd.read_csv('model_ready_v2.csv')
+    fi_path = 'feature_importance_v3.csv' if __import__('os').path.exists('feature_importance_v3.csv') else 'feature_importance_v2.csv'
+    fi = pd.read_csv(fi_path)
+
+    ewb.rename(columns={'odi_3m': 'odi_3m_avg', 'sdpi_3m': 'sdpi_3m_avg'}, inplace=True)
+    if 'month_num' not in ewb.columns and 'month' in ewb.columns:
+        ewb['month_num'] = ewb['month']
+    if 'out_ewb_yoy' not in ewb.columns:
+        ewb = ewb.sort_values(['state_name', 'date'])
+        ewb['out_ewb_yoy'] = ewb.groupby('state_name')['out_ewb'].pct_change(12)
+
+    rfq, seasonal_lookup, le_orig, le_dest, features = prepare_rfq(rfq_raw, ewb)
+    return ewb, rfq, fi, seasonal_lookup, le_orig, le_dest, features
+
+@st.cache_resource(show_spinner=False)
+def train_model(rfq, features):
+    return train_v3_models(rfq, features)
+
+with st.spinner("Loading Model v3…"):
+    ewb, rfq, fi, seasonal_lookup, le_orig, le_dest, FEATURES = load_data()
+    model, model_q10, model_q90, feat_med, df_model = train_model(rfq, FEATURES)
+
+latest_ewb  = ewb[ewb['date']==ewb['date'].max()].copy()
+latest_ewb['state_name_upper'] = latest_ewb['state_name'].str.upper()
+latest_ewb  = latest_ewb.set_index('state_name_upper')
+STATES      = sorted(rfq['origin_state'].dropna().unique().tolist())
+latest_date = ewb['date'].max().strftime('%b %Y')
+india_odi   = ewb[ewb['date']==ewb['date'].max()]['odi'].mean()
+
+# ── Build city-level lookup structures from actual data ───────────────────────
+import pandas as _pd2
+_cfreq = _pd2.concat([
+    rfq[['_orig_city','origin_state']].rename(columns={'_orig_city':'city','origin_state':'state'}),
+    rfq[['_dest_city','destination_state']].rename(columns={'_dest_city':'city','destination_state':'state'})
+]).dropna().groupby(['city','state']).size().reset_index(name='cnt')
+_cfreq = _cfreq[_cfreq['cnt'] >= 5].sort_values('cnt', ascending=False)
+_cfreq = _cfreq.drop_duplicates('city')  # keep highest-freq state per city
+CITY_STATE_MAP = {r['city']: r['state'] for _, r in _cfreq.iterrows()}
+CITIES = [f"{r['city']}, {r['state']}" for _, r in _cfreq.iterrows()]
+
+def ewb_sig(state):
+    key=STATE_MAP.get(state,state.upper())
+    if key in latest_ewb.index:
+        r=latest_ewb.loc[key]
+        return {k:r[k] for k in ['odi','iac','opi','vif','sdpi','net_flow_pct',
+                'odi_3m_avg','sdpi_3m_avg','state_out_rank','out_ewb','in_ewb','total_ewb']}
+    return {k:feat_med.get(f'orig_{k.replace("_avg","")}',1.0) for k in
+            ['odi','iac','opi','vif','sdpi','net_flow_pct','odi_3m_avg',
+             'sdpi_3m_avg','state_out_rank','out_ewb','in_ewb','total_ewb']}
+
+def predict(origin_city, origin_state, dest_city, dest_state, vtype, month_num, competition=50):
+    oc = CITY_COORDS.get(origin_city) or STATE_COORDS.get(origin_state)
+    dc = CITY_COORDS.get(dest_city) or STATE_COORDS.get(dest_state)
+    same_city = origin_city == dest_city
+    dist = 200.0 if same_city else (hav(*oc, *dc) if oc and dc else feat_med.get('approx_dist_km', 600))
+    db = 0 if dist < 250 else (1 if dist < 750 else 2)
+    os_ = ewb_sig(origin_state)
+    ds_ = ewb_sig(dest_state)
+    sf = season_f(month_num, origin_state, seasonal_lookup)
+
+    row = build_predict_row(
+        origin_city, origin_state, dest_city, dest_state,
+        vtype, month_num, competition, dist,
+        os_, ds_, rfq, feat_med,
+        seasonal_lookup, le_orig, le_dest,
+    )
+    p, ci_lo, ci_hi = predict_v3(model, model_q10, model_q90, FEATURES, feat_med, row)
+
+    lm = row['lane_median']
+    has_city_lane = ((rfq['_orig_city'] == origin_city) & (rfq['_dest_city'] == dest_city)).sum() > 0
+    has_state_lane = (
+        (rfq['origin_state'] == origin_state) & (rfq['destination_state'] == dest_state)
+    ).sum() > 0
+    return dict(
+        price=p, ci_lo=ci_lo, ci_hi=ci_hi, dist=dist,
+        haul=['Short Haul', 'Mid Haul', 'Long Haul'][db],
+        odi=os_['odi'], opi=os_['opi'], sdpi=os_['sdpi'], sf=sf, lane_med=lm,
+        cap=extract_cap(vtype),
+        has_lane=has_city_lane or has_state_lane,
+        has_city_lane=has_city_lane,
+    )
+
+# ── TOPBAR ─────────────────────────────────────────────────────────────────────
+st.markdown(f'''
+<div class="topbar fu">
+  <img src="{LOGO_SRC}" alt="FreightFox">
+  <div class="topbar-pill">Live Intelligence Network</div>
+</div>''', unsafe_allow_html=True)
+
+# ── HERO ───────────────────────────────────────────────────────────────────────
+st.markdown(f'''
+<div class="hero-wrap">
+  <div class="hero-inner">
+    <div>
+      <div class="hero-tag fu"><div class="hero-tag-dot"></div>Model v3.4 Deployment · Operational</div>
+      <div class="hero-h1 fu">Know the price<br>before you <em>negotiate.</em></div>
+      <div class="hero-sub fu">A high-fidelity LightGBM engine trained on 7 years of E-Way Bill demand signals and 10,000+ live carrier bids. Predict market movements before you enter the room.</div>
+    </div>
+    <div class="hero-stats fu">
+      <div class="hs"><div class="hs-val">{len(rfq):,}</div><div class="hs-lbl">Historical Bids</div></div>
+      <div class="hs"><div class="hs-val">{rfq['tsp_partner_name'].nunique()}</div><div class="hs-lbl">Qualified TSPs</div></div>
+      <div class="hs"><div class="hs-val">{MODEL_R2:.3f}</div><div class="hs-lbl">Model Accuracy (R²)</div><div class="hs-note">{MODEL_MAPE:.1f}% OOS MAPE</div></div>
+      <div class="hs"><div class="hs-val">{india_odi:.2f}</div><div class="hs-lbl">National ODI Index</div></div>
+    </div>
+  </div>
+</div>''', unsafe_allow_html=True)
+
+# ── TABS ───────────────────────────────────────────────────────────────────────
+T1,T2,T3,T4 = st.tabs(["Price Estimator","Market Landscape","Demand Signals","Data Explorer"])
+
+# ═══════════════════════════════════════════════
+# TAB I — PRICE ESTIMATOR
+# ═══════════════════════════════════════════════
+with T1:
+    st.markdown('''<div class="sh fu">
+    <div class="sh-title">Price Prediction Engine</div>
+    <div class="sh-body">Simulate market scenarios by adjusting lane parameters and carrier dynamics. Our engine injects real-time seasonality and regional demand pressure (OPI/SDPI) for maximum precision.</div>
+    </div>''', unsafe_allow_html=True)
+    st.markdown('<div class="pad">', unsafe_allow_html=True)
+
+    st.markdown('<div class="sec-label">Route &amp; Vehicle</div>', unsafe_allow_html=True)
+    ia, ib, ic = st.columns(3, gap="medium")
+    with ia:
+        _def_o = next((i for i,c in enumerate(CITIES) if c.startswith('Aurangabad')), 0)
+        origin_sel = st.selectbox("Origin City", CITIES, index=_def_o)
+        origin_city, origin_state = origin_sel.rsplit(', ', 1)
+    with ib:
+        _def_d = next((i for i,c in enumerate(CITIES) if c.startswith('Bangalore')), 1)
+        dest_sel = st.selectbox("Destination City", CITIES, index=_def_d)
+        dest_city, dest_state = dest_sel.rsplit(', ', 1)
+    with ic: 
+        vehicle_type = st.selectbox("Vehicle Type / Configuration", VEHICLE_TYPES)
+        cap_val = extract_cap(vehicle_type)
+        vtype_tag = "Container" if "container" in vehicle_type.lower() else "Open Body"
+        st.markdown(f'<div style="font-family:\'DM Mono\', monospace; font-size: 0.75rem; font-weight: 600; color: var(--blue); margin-top: -8px;">◈ &nbsp;{cap_val} MT Payload &nbsp;·&nbsp; {vtype_tag}</div>', unsafe_allow_html=True)
+
+    id_, ie_, _ = st.columns([2, 2, 2], gap="medium")
+    with id_:
+        month_sel = st.selectbox("Shipment Month", MONTH_NAMES, index=1)
+        month_num = MONTH_NAMES.index(month_sel) + 1
+    with ie_:
+        competition = st.slider("Competing Carriers", 5, 200, 50)
+
+    os_ = ewb_sig(origin_state); sf_val = season_f(month_num, origin_state, seasonal_lookup)
+    def sc(v, lo=1.0, hi=1.2): return "hi" if v > hi else ("mid" if v > lo else "lo")
+    st.markdown(f'''
+    <div class="sec-label">Live EWB Signals · {origin_city}, {origin_state} · {latest_date}</div>
+    <div style="display: flex; gap: 16px; margin-bottom: 40px;">
+      <div class="sig" style="flex:1"><div class="sig-l">Outbound Demand (ODI)</div><div class="sig-v">{os_["odi"]:.3f}</div></div>
+      <div class="sig" style="flex:1"><div class="sig-l">Origin Pressure (OPI)</div><div class="sig-v">{os_["opi"]:.3f}</div></div>
+      <div class="sig" style="flex:1"><div class="sig-l">Supply-Demand (SDPI)</div><div class="sig-v">{os_["sdpi"]:.4f}</div></div>
+      <div class="sig" style="flex:1"><div class="sig-l">Seasonal Factor</div><div class="sig-v">{sf_val:.3f}×</div></div>
+    </div>''', unsafe_allow_html=True)
+
+    st.button("Run Price Model →")
+
+    Res = predict(origin_city, origin_state, dest_city, dest_state, vehicle_type, month_num, competition)
+    st.markdown('<div class="sec-label" style="margin-top:24px">Model Output</div>', unsafe_allow_html=True)
+
+    lane_txt = "City-Level History" if Res.get('has_city_lane') else ("State-Level History" if Res['has_lane'] else "Extrapolated")
+    st.markdown(f'''
+    <div class="price-card-fw fu">
+      <div class="pc-header">
+        <div>
+          <div class="pc-route">{origin_city} ◈ {dest_city}</div>
+          <div style="font-family:'DM Mono'; font-size:0.65rem; color:var(--ink3); margin-top:4px">{origin_state} → {dest_state} · {Res['dist']:.0f} km</div>
+        </div>
+        <div style="font-family:'DM Mono'; font-size:0.75rem; color:var(--ink3); background:rgba(255,255,255,0.05); padding:4px 12px; border-radius:100px; border:1px solid rgba(255,255,255,0.1)">{vehicle_type}</div>
+      </div>
+      <div class="pc-body">
+        <div class="pc-price-area">
+          <div class="pc-meta-kpi-lbl" style="margin-bottom:12px">Predicted Freight Rate</div>
+          <div class="pc-figure-lg"><span class="pc-sym-lg">₹</span>{Res["price"]:,.0f}</div>
+          <div class="pc-ci" style="margin-top:32px; color:var(--ink3)">
+            Confidence Range &nbsp;·&nbsp; <strong>₹{Res["ci_lo"]:,.0f} — ₹{Res["ci_hi"]:,.0f}</strong>
+          </div>
+        </div>
+        <div class="pc-meta-area">
+          <div class="pc-meta-kpi">
+            <div class="pc-meta-kpi-val">₹{Res["price"]/Res["dist"]:.2f}</div>
+            <div class="pc-meta-kpi-lbl">Rate per KM</div>
+          </div>
+          <div class="pc-meta-kpi">
+            <div class="pc-meta-kpi-val">₹{Res["lane_med"]:,.0f}</div>
+            <div class="pc-meta-kpi-lbl">Corridor Benchmark ({lane_txt})</div>
+          </div>
+          <div class="pc-meta-kpi">
+            <div class="pc-meta-kpi-val">{Res["sf"]:.3f}×</div>
+            <div class="pc-meta-kpi-lbl">Seasonality ({month_sel})</div>
+          </div>
+        </div>
+      </div>
+    </div>''', unsafe_allow_html=True)
+
+    if not Res['has_lane']:
+        st.markdown('<div class="al info" style="margin-top:8px">ℹ️ No direct lane history found — rate extrapolated from distance, capacity and EWB signals of analogous corridors.</div>', unsafe_allow_html=True)
+
+    for months, (cls, msg) in {
+        (10, 11): ('warn', '⚡ Festive season surge (Diwali/Navratri). Historical premium: +8–15% on most corridors.'),
+        (6, 7, 8, 9): ('info', '🌧 Monsoon period. Rates typically 8–12% below peak-season baseline.'),
+        (3, 4): ('', '🌾 Rabi harvest. Punjab/Haryana/UP wheat-belt corridors see +3–6% premium.')
+    }.items():
+        if month_num in months:
+            st.markdown(f'<div class="al {cls}" style="margin-top:8px">{msg}</div>', unsafe_allow_html=True); break
+
+    # ── AI Reasoning Box ───────────────────────────────────────────────────────
+    reasoning = []
+    
+    # 1. Base Rate / Distance
+    if Res['has_lane']:
+        reasoning.append(f"<strong>Base Rate:</strong> The model anchored on a historical baseline of <strong>₹{Res['lane_med']:,.0f}</strong> for the {origin_city} → {dest_city} corridor ({origin_state} to {dest_state}).")
+    else:
+        reasoning.append(f"<strong>Base Rate:</strong> Lacking direct lane history, the model extrapolated a base rate using the <strong>{Res['dist']:.0f} km</strong> distance and <strong>{cap_val} MT</strong> capacity.")
+
+    # 2. Origin Pressure Index (OPI) & SDPI
+    opi = Res['opi']
+    sdpi = Res['sdpi']
+    if opi > 1.1:
+        reasoning.append(f"<strong>Origin Pressure (OPI {opi:.2f}):</strong> There is extremely high outbound freight volume from {origin_state} right now. Carriers are charging a premium because demand for trucks far exceeds local supply.")
+    elif opi < 0.9:
+        reasoning.append(f"<strong>Origin Pressure (OPI {opi:.2f}):</strong> Freight volume leaving {origin_state} is currently low, forcing carriers to bid competitively to secure loads, pushing rates down.")
+
+    if sdpi > 0.05:
+        reasoning.append(f"<strong>Supply-Demand Imbalance (SDPI {sdpi:.3f}):</strong> More trucks are leaving {origin_state} than entering it, creating a structural truck deficit that drives up prices.")
+    elif sdpi < -0.05:
+        reasoning.append(f"<strong>Supply-Demand Imbalance (SDPI {sdpi:.3f}):</strong> A surplus of trucks entering {origin_state} with fewer outbound loads means carriers are willing to take lower rates to avoid empty return trips.")
+
+    # 3. Seasonality & Festivals
+    festivals = {
+        ('Uttar Pradesh',10): 'Diwali preparation', ('Uttar Pradesh',11): 'the post-Diwali backlog',
+        ('Uttar Pradesh',3): 'the Rabi harvest', ('Maharashtra',10): 'Diwali preparation', 
+        ('Maharashtra',11): 'the post-Diwali backlog', ('Punjab',3): 'the Rabi wheat harvest', 
+        ('Punjab',4): 'the peak Rabi wheat harvest', ('Haryana',3): 'the Rabi wheat harvest', 
+        ('Haryana',4): 'the peak Rabi wheat harvest', ('Kerala',8): 'the Onam festival', 
+        ('Kerala',9): 'the post-Onam backlog', ('West Bengal',9): 'Durga Puja preparation', 
+        ('West Bengal',10): 'Durga Puja', ('Tamil Nadu',1): 'the Pongal festival',
+        ('Gujarat',10): 'the Navratri/Diwali peak'
+    }
+    fest_reason = festivals.get((origin_state, month_num))
+
+    if fest_reason:
+        reasoning.append(f"<strong>Seasonal Spike:</strong> Prices are being heavily driven up by <strong>{fest_reason}</strong> in {origin_state} during {month_sel}.")
+    elif sf_val > 1.05:
+        reasoning.append(f"<strong>Seasonality:</strong> General seasonal demand in {origin_state} during {month_sel} is unusually high (<strong>{sf_val:.2f}x</strong> the yearly average), pulling rates up.")
+    elif sf_val < 0.95:
+        reasoning.append(f"<strong>Seasonality:</strong> {month_sel} is typically a slow month for {origin_state} (<strong>{sf_val:.2f}x</strong> the yearly average), which softens the final price.")
+
+    # 4. Competition
+    if competition > 100:
+        reasoning.append(f"<strong>Market Competition:</strong> A high level of carrier competition (<strong>{competition} bids</strong>) is helping to compress carrier margins and push the rate down.")
+    elif competition < 20:
+        reasoning.append(f"<strong>Market Competition:</strong> Low carrier competition (<strong>{competition} bids</strong>) is allowing carriers to command a slight premium due to limited options.")
+
+    reasoning_html = f'''
+    <div style="background: var(--white); border: 1px solid var(--rule); border-radius: 24px; padding: 48px; margin: 40px 0; box-shadow: var(--shadow-lg);">
+      <div style="font-size: 1.1rem; font-weight: 700; color: var(--ink); margin-bottom: 24px; display: flex; align-items: center; gap: 12px;">
+        <span style="font-size: 1.5rem;">💡</span> Concrete Pricing Insights
+      </div>
+      <ul style="margin: 0; padding-left: 24px; font-size: 0.95rem; color: var(--ink2); line-height: 1.8;">
+        {''.join([f"<li style='margin-bottom: 12px;'>{r}</li>" for r in reasoning])}
+      </ul>
+    </div>
+    '''
+    st.markdown(reasoning_html, unsafe_allow_html=True)
+    # ───────────────────────────────────────────────────────────────────────────
+
+    drivers = [("Distance", Res['dist']/2248), ("Carrier ODI", min(Res['odi']/2.0, 1)),
+               ("Origin OPI", min(Res['opi']/2.5, 1)), ("SDPI", min(Res['sdpi']/0.12, 1)),
+               ("Seasonality", (Res['sf']-0.88)/(1.15-0.88)), ("Competition", 1-min(competition/200, 1))]
+    fig = go.Figure()
+    for drv, val in drivers:
+        fig.add_trace(go.Bar(x=[val*100], y=[drv], orientation='h', showlegend=False,
+            marker=dict(color=RED if val > 0.7 else (AMBER if val > 0.45 else BLUE), line=dict(width=0)),
+            text=f"  {val*100:.0f}%", textposition='outside',
+            textfont=dict(size=10, color=GREY, family='DM Mono, monospace')))
+    fig.update_layout(**{**PLOT, 'height': 240, 'margin': dict(l=0, r=60, t=8, b=8),
+        'xaxis': dict(range=[0, 125], showgrid=False, showticklabels=False, showline=False, zeroline=False),
+        'yaxis': dict(showgrid=False, showline=False, tickfont=dict(size=11, color=GREY, family='Plus Jakarta Sans, sans-serif')),
+        'bargap': 0.38, 'plot_bgcolor': 'rgba(0,0,0,0)', 'paper_bgcolor': 'rgba(0,0,0,0)'})
+    st.markdown('<div class="cp" style="margin-top:12px"><div class="cp-title">Price Driver Decomposition</div><div class="cp-sub">Relative intensity of each pricing factor for this configuration</div>', unsafe_allow_html=True)
+    st.plotly_chart(fig, use_container_width=True, config=dict(displayModeBar=False))
+    st.markdown('</div></div>', unsafe_allow_html=True)
+
+# ═══════════════════════════════════════════════
+# TAB II — MARKET LANDSCAPE
+# ═══════════════════════════════════════════════
+with T2:
+    st.markdown('''<div class="sh fu">
+    <div class="sh-kicker">Section 02</div>
+    <div class="sh-title">Market Landscape</div>
+    <div class="sh-body">State-to-state median rates, model feature importance, rate vs distance scatter, and carrier pricing tiers — all derived from 10,000 bids across 113 lanes.</div>
+    </div>''', unsafe_allow_html=True)
+    st.markdown('<div class="pad">', unsafe_allow_html=True)
+
+    c1, c2 = st.columns(2, gap="large")
+    with c1:
+        TOP_ST = ['Maharashtra','Gujarat','Karnataka','Tamil Nadu','Telangana',
+                  'Uttar Pradesh','Kerala','Rajasthan','West Bengal','Odisha']
+        piv = rfq[rfq['origin_state'].isin(TOP_ST) & rfq['destination_state'].isin(TOP_ST)]
+        heat = piv.groupby(['origin_state','destination_state'])['quote'].median().unstack(fill_value=np.nan)/1000
+        heat = heat.reindex(index=TOP_ST, columns=TOP_ST)
+        fig_h = go.Figure(go.Heatmap(
+            z=heat.values, x=heat.columns.tolist(), y=heat.index.tolist(),
+            colorscale=[[0,'rgba(0,0,0,0)'],[0.45,BLUE],[1,'#E0E7FF']],
+            text=np.where(np.isnan(heat.values),'',heat.values.round(0).astype(str)),
+            texttemplate='%{text}', textfont=dict(size=8,family='DM Mono, monospace',color='white'),
+            hovertemplate='%{y} → %{x}<br>₹%{z:.0f}K<extra></extra>',
+            colorbar=dict(title=dict(text='₹K',font=dict(color=GREY,size=9,family='DM Mono, monospace')),
+                          tickfont=dict(size=8,color=GREY),thickness=8,len=0.8,bgcolor='rgba(0,0,0,0)')))
+        fig_h.update_layout(**{**PLOT, 'height': 420, 'margin': dict(l=0,r=20,t=8,b=0),
+            'xaxis': dict(tickangle=-40,tickfont=dict(size=8,color=GREY,family='Plus Jakarta Sans, sans-serif'),showgrid=False),
+            'yaxis': dict(tickfont=dict(size=8,color=GREY,family='Plus Jakarta Sans, sans-serif'),showgrid=False)})
+        st.markdown('<div class="cp fu"><div class="cp-title">State-to-State Median Rates</div><div class="cp-sub">₹ Thousands · Origin rows → Destination cols · Top 10 states by volume</div>', unsafe_allow_html=True)
+        st.plotly_chart(fig_h, use_container_width=True, config=dict(displayModeBar=False))
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    with c2:
+        nice = {'tsp_median':'Carrier avg rate','capacity_mt':'Truck capacity (MT)',
+                'rfq_bid_count':'Competition depth','rfq_spread_pct':'Bid spread %',
+                'lane_median':'Lane benchmark','opi_x_capacity':'OPI × Capacity',
+                'approx_dist_km':'Route distance (km)','sdpi_x_dist':'SDPI × Distance',
+                'dest_state_enc':'Destination state','dest_odi':'Destination ODI',
+                'dest_iac':'Destination IAC','is_container':'Container flag',
+                'orig_state_enc':'Origin state','dest_sdpi':'Destination SDPI',
+                'orig_vif':'Origin value intensity'}
+        EWB = {'opi_x_capacity','sdpi_x_dist','dest_odi','dest_iac','dest_sdpi','orig_vif'}
+        tf = fi.head(12).copy(); tf['label'] = tf['feature'].map(nice).fillna(tf['feature'])
+        tf['pct'] = tf['importance']/tf['importance'].sum()*100
+        tf['ewb'] = tf['feature'].isin(EWB)
+        fig_fi = go.Figure(go.Bar(
+            x=tf['pct'][::-1].values, y=tf['label'][::-1].values, orientation='h',
+            marker=dict(color=[BLUE if e else INK for e in tf['ewb'][::-1]], line=dict(width=0)),
+            text=[f"  {v:.1f}%" for v in tf['pct'][::-1]], textposition='outside',
+            textfont=dict(size=9,color=GREY,family='DM Mono, monospace'), showlegend=False))
+        fig_fi.update_layout(**{**PLOT, 'height': 420, 'margin': dict(l=0,r=60,t=8,b=0),
+            'xaxis': dict(showgrid=False,showticklabels=False,showline=False,zeroline=False,range=[0,42]),
+            'yaxis': dict(showgrid=False,showline=False,tickfont=dict(size=10,color=GREY,family='Plus Jakarta Sans, sans-serif')),
+            'bargap': 0.3})
+        st.markdown(f'<div class="cp fu"><div class="cp-title">Price Driver Importance</div><div class="cp-sub">LightGBM gain · <span style="color:{BLUE}">■ EWB-derived signal</span> &nbsp; <span style="color:{INK}">■ Operational factor</span></div>', unsafe_allow_html=True)
+        st.plotly_chart(fig_fi, use_container_width=True, config=dict(displayModeBar=False))
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    samp = rfq[(rfq['quote']<400000) & (rfq['approx_dist_km']>50)].sample(min(2500,len(rfq)),random_state=42)
+    z = np.polyfit(samp['approx_dist_km'], samp['quote'], 2); xp = np.linspace(50, 2200, 200)
+    fig_sc = go.Figure()
+    fig_sc.add_trace(go.Scatter(x=samp['approx_dist_km'], y=samp['quote'], mode='markers',
+        marker=dict(color=BLUE, size=3, opacity=0.18), showlegend=False,
+        hovertemplate='%{x:.0f}km · ₹%{y:,.0f}<extra></extra>'))
+    fig_sc.add_trace(go.Scatter(x=xp, y=np.poly1d(z)(xp), mode='lines',
+        line=dict(color=RED, width=2.5), name='Quadratic trend'))
+    fig_sc.update_layout(**{**PLOT, 'height': 300, 'margin': dict(l=48,r=16,t=8,b=40),
+        'xaxis': dict(**PLOT['xaxis'],title='Distance (km)',title_font=dict(size=10,color=GREY,family='DM Mono, monospace')),
+        'yaxis': dict(**PLOT['yaxis'],title='Quote (₹)',title_font=dict(size=10,color=GREY,family='DM Mono, monospace')),
+        'showlegend': True})
+    st.markdown('<div class="cp fu"><div class="cp-title">Freight Rate vs Route Distance</div><div class="cp-sub">~10,000 individual bids · Quadratic trend line</div>', unsafe_allow_html=True)
+    st.plotly_chart(fig_sc, use_container_width=True, config=dict(displayModeBar=False))
+    st.markdown('</div>', unsafe_allow_html=True)
+
+    tc = rfq.groupby('tsp_partner_name').agg(med=('quote','median'),cnt=('quote','count')).reset_index()
+    tc = tc[tc['cnt']>=20].sort_values('med', ascending=False).head(18)
+    tc['tier'] = tc['med'].apply(lambda x: 'Premium' if x>80000 else ('Mid-tier' if x>40000 else 'Economy'))
+    cm = {'Premium': RED, 'Mid-tier': AMBER, 'Economy': BLUE}
+    fig_c = go.Figure(go.Bar(
+        x=tc['med'].values/1000, y=[n[:28] for n in tc['tsp_partner_name']], orientation='h',
+        marker=dict(color=[cm[t] for t in tc['tier']], line=dict(width=0)),
+        text=[f"  ₹{v:.0f}K" for v in tc['med']/1000], textposition='outside',
+        textfont=dict(size=9,color=GREY,family='DM Mono, monospace'), showlegend=False,
+        hovertemplate='%{y}<br>₹%{x:.0f}K<extra></extra>'))
+    fig_c.update_layout(**{**PLOT, 'height': 440, 'margin': dict(l=0,r=80,t=8,b=0),
+        'xaxis': dict(showgrid=True,gridcolor='rgba(255,255,255,0.08)',showticklabels=False,showline=False,zeroline=False),
+        'yaxis': dict(showgrid=False,showline=False,tickfont=dict(size=10,color=GREY,family='Plus Jakarta Sans, sans-serif')),
+        'bargap': 0.28})
+    st.markdown(f'<div class="cp fu"><div class="cp-title">Carrier Pricing Tiers</div><div class="cp-sub">Median quote per carrier · ≥20 bids · <span style="color:{RED}">■ Premium  </span><span style="color:{AMBER}">■ Mid-tier  </span><span style="color:{BLUE}">■ Economy</span></div>', unsafe_allow_html=True)
+    st.plotly_chart(fig_c, use_container_width=True, config=dict(displayModeBar=False))
+    st.markdown('</div></div>', unsafe_allow_html=True)
+
+# ═══════════════════════════════════════════════
+# TAB III — DEMAND SIGNALS
+# ═══════════════════════════════════════════════
+with T3:
+    st.markdown('''<div class="sh fu">
+    <div class="sh-kicker">Section 03</div>
+    <div class="sh-title">EWB Demand Signals</div>
+    <div class="sh-body">Seven years of state-level E-Way Bill data translated into ODI, OPI and SDPI signals — the macro underpinning of freight rate movements.</div>
+    </div>''', unsafe_allow_html=True)
+    st.markdown('<div class="pad">', unsafe_allow_html=True)
+
+    c1, _ = st.columns([1, 2])
+    with c1:
+        sel_state = st.selectbox("Select State",
+            [s.title() for s in sorted(ewb['state_name'].unique())],
+            index=list(s.title() for s in sorted(ewb['state_name'].unique())).index('Maharashtra'))
+    se = ewb[ewb['state_name']==sel_state].sort_values('date'); lr = se.iloc[-1]
+    yoy_txt = f"{lr['out_ewb_yoy']*100:+.1f}%" if pd.notna(lr.get('out_ewb_yoy')) else "N/A"
+
+    st.markdown(f'''
+    <div class="sg fu">
+      <div class="sg-cell"><div class="sg-val">{lr["odi"]:.3f}</div><div class="sg-lbl">Outbound Demand Intensity</div><div class="sg-note">{(lr["odi"]-1)*100:+.1f}% vs baseline</div></div>
+      <div class="sg-cell"><div class="sg-val">{lr["opi"]:.3f}</div><div class="sg-lbl">Origin Pressure Index</div><div class="sg-note">{"Net exporter — rate pressure ↑" if lr["opi"]>1 else "Net importer — rate pressure ↓"}</div></div>
+      <div class="sg-cell"><div class="sg-val">{lr["sdpi"]:.4f}</div><div class="sg-lbl">Supply-Demand Pressure</div><div class="sg-note">Composite pricing signal</div></div>
+      <div class="sg-cell"><div class="sg-val">{yoy_txt}</div><div class="sg-lbl">Outbound EWB Growth</div><div class="sg-note">Year-on-year change</div></div>
+    </div>''', unsafe_allow_html=True)
+
+    fig_ts = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.04, row_heights=[0.62,0.38])
+    fig_ts.add_trace(go.Scatter(x=se['date'], y=se['out_ewb'], mode='lines',
+        line=dict(color=BLUE, width=1.8), fill='tozeroy',
+        fillcolor='rgba(62,111,246,0.07)', name='EWB Volume'), row=1, col=1)
+    fig_ts.add_vrect(x0='2020-04-01', x1='2021-06-30', fillcolor='rgba(229,72,77,0.06)', line_width=0, row=1, col=1)
+    fig_ts.add_trace(go.Scatter(x=se['date'], y=se['odi'], mode='lines',
+        line=dict(color=BLUE_LO, width=2), name='ODI'), row=2, col=1)
+    fig_ts.add_hline(y=1.0, line_dash='dot', line_color='#C8D0E0', row=2, col=1)
+    fig_ts.update_layout(**{**PLOT, 'height': 360, 'margin': dict(l=48,r=16,t=8,b=8),
+        'xaxis2': dict(showgrid=True,gridcolor='rgba(255,255,255,0.08)',linecolor='rgba(255,255,255,0.15)',tickfont=dict(size=9,color=GREY,family='DM Mono, monospace')),
+        'yaxis':  dict(showgrid=True,gridcolor='rgba(255,255,255,0.08)',tickfont=dict(size=9,color=GREY)),
+        'yaxis2': dict(showgrid=True,gridcolor='rgba(255,255,255,0.08)',tickfont=dict(size=9,color=GREY))})
+    st.markdown('<div class="cp fu"><div class="cp-title">Outbound EWB Volume & ODI</div><div class="cp-sub">Jul 2018 – Nov 2025 · Shaded region = Covid lockdown period</div>', unsafe_allow_html=True)
+    st.plotly_chart(fig_ts, use_container_width=True, config=dict(displayModeBar=False))
+    st.markdown('</div>', unsafe_allow_html=True)
+
+    mn_avg = se.groupby('month_num')['odi'].mean().reindex(range(1,13))
+    norm = (mn_avg/mn_avg.mean()).fillna(1.0)
+    bar_c = [RED if v>1.04 else (AMBER if v>1.0 else BLUE) for v in norm.values]
+    fig_s = go.Figure(go.Bar(x=MONTH_SHORT, y=norm.values,
+        marker=dict(color=bar_c, line=dict(width=0)),
+        text=[f"{v:.2f}" for v in norm.values], textposition='outside',
+        textfont=dict(size=9, color=GREY, family='DM Mono, monospace')))
+    fig_s.add_hline(y=1.0, line_dash='dot', line_color='#C8D0E0')
+    fig_s.update_layout(**{**PLOT, 'height': 260, 'bargap': 0.3, 'margin': dict(l=48,r=16,t=8,b=8),
+        'yaxis': dict(**PLOT['yaxis'], title='Relative ODI', range=[0.78,max(norm.values)*1.16],
+                      title_font=dict(size=10,color=GREY,family='DM Mono, monospace'))})
+    st.markdown('<div class="cp fu"><div class="cp-title">Seasonal Demand Profile</div><div class="cp-sub">Mean ODI by calendar month · 7-year historical average</div>', unsafe_allow_html=True)
+    st.plotly_chart(fig_s, use_container_width=True, config=dict(displayModeBar=False))
+    st.markdown('</div>', unsafe_allow_html=True)
+
+    india_t = ewb.groupby('date')[['out_ewb','in_ewb','intra_ewb']].sum().reset_index()
+    fig_in = go.Figure()
+    for col_n, lbl, clr in [('out_ewb','Outbound',BLUE_HI),('in_ewb','Inbound',BLUE),('intra_ewb','Intra-state',BLUE_LO)]:
+        fig_in.add_trace(go.Scatter(x=india_t['date'], y=india_t[col_n]/1e6, mode='lines', name=lbl,
+            line=dict(color=clr, width=1.8), fill='tozeroy', stackgroup='one'))
+    fig_in.add_vrect(x0='2020-04-01', x1='2021-06-30', fillcolor='rgba(229,72,77,0.06)', line_width=0,
+        annotation_text='COVID', annotation_font=dict(color=RED,size=8,family='DM Mono, monospace'))
+    fig_in.update_layout(**{**PLOT, 'height': 280, 'margin': dict(l=48,r=16,t=8,b=8),
+        'yaxis': dict(**PLOT['yaxis'],title='EWBs (Millions)',title_font=dict(size=10,color=GREY,family='DM Mono, monospace'))})
+    st.markdown('<div class="cp"><div class="cp-title">India-Wide EWB Activity</div><div class="cp-sub">All states aggregated · Stacked outbound, inbound, intra-state · Jul 2018 – Nov 2025</div>', unsafe_allow_html=True)
+    st.plotly_chart(fig_in, use_container_width=True, config=dict(displayModeBar=False))
+    st.markdown('</div></div>', unsafe_allow_html=True)
+
+# ═══════════════════════════════════════════════
+# TAB IV — DATA EXPLORER
+# ═══════════════════════════════════════════════
+with T4:
+    st.markdown('''<div class="sh fu">
+    <div class="sh-kicker">Section 04</div>
+    <div class="sh-title">RFQ Bid Explorer</div>
+    <div class="sh-body">Filter and interrogate the carrier bids underpinning the model. Compare actual quotes against model predictions across any lane.</div>
+    </div>''', unsafe_allow_html=True)
+    st.markdown('<div class="pad">', unsafe_allow_html=True)
+
+    st.markdown('<div class="sec-label">Filters</div>', unsafe_allow_html=True)
+    f1, f2, f3 = st.columns([2, 2, 3], gap="medium")
+    with f1: fo = st.multiselect("Origin State", STATES)
+    with f2: fd = st.multiselect("Destination State", STATES)
+    with f3: pr = st.slider("Quote Range (₹)", 0, 400000, (0, 400000), step=5000)
+
+    flt = rfq.copy()
+    if fo: flt = flt[flt['origin_state'].isin(fo)]
+    if fd: flt = flt[flt['destination_state'].isin(fd)]
+    flt = flt[(flt['quote']>=pr[0]) & (flt['quote']<=pr[1])]
+
+    st.markdown(f'''
+    <div class="sg fu" style="margin-top:16px;margin-bottom:16px">
+      <div class="sg-cell"><div class="sg-val">{len(flt):,}</div><div class="sg-lbl">Matching Bids</div><div class="sg-note">of {len(rfq):,} total</div></div>
+      <div class="sg-cell"><div class="sg-val">₹{flt["quote"].min():,.0f}</div><div class="sg-lbl">Floor Quote</div></div>
+      <div class="sg-cell"><div class="sg-val">₹{flt["quote"].median():,.0f}</div><div class="sg-lbl">Median Quote</div></div>
+      <div class="sg-cell"><div class="sg-val">₹{flt["quote"].max():,.0f}</div><div class="sg-lbl">Ceiling Quote</div></div>
+    </div>''', unsafe_allow_html=True)
+
+    fig_d = go.Figure(go.Histogram(x=flt['quote'][flt['quote']<400000], nbinsx=50,
+        marker=dict(color=BLUE, line=dict(width=0)), opacity=0.85))
+    fig_d.update_layout(**{**PLOT, 'height': 220, 'bargap': 0.04, 'margin': dict(l=48,r=16,t=8,b=40),
+        'xaxis': dict(**PLOT['xaxis'],title='Quote (₹)',title_font=dict(size=10,color=GREY,family='DM Mono, monospace')),
+        'yaxis': dict(**PLOT['yaxis'],title='Count',title_font=dict(size=10,color=GREY,family='DM Mono, monospace'))})
+    st.markdown('<div class="cp fu"><div class="cp-title">Quote Distribution</div><div class="cp-sub">Filtered selection · Bin width auto</div>', unsafe_allow_html=True)
+    st.plotly_chart(fig_d, use_container_width=True, config=dict(displayModeBar=False))
+    st.markdown('</div>', unsafe_allow_html=True)
+
+    SHOW = ['rfq_id','origin_state','destination_state','vehicle_type','tsp_partner_name','quote','pred_quote','approx_dist_km']
+    RENAME = {'rfq_id':'RFQ ID','origin_state':'Origin','destination_state':'Dest.',
+              'vehicle_type':'Vehicle','tsp_partner_name':'Carrier',
+              'quote':'Actual (₹)','pred_quote':'Model (₹)','approx_dist_km':'Dist (km)'}
+    # show only columns that exist (pred_quote may be absent in v2)
+    show_cols = [c for c in SHOW if c in flt.columns]
+    rename_filtered = {k:v for k,v in RENAME.items() if k in show_cols}
+    st.markdown('<div class="sec-label" style="margin-top:8px">Bid Records</div>', unsafe_allow_html=True)
+    st.dataframe(flt[show_cols].rename(columns=rename_filtered).head(500),
+        use_container_width=True, height=400)
+    st.markdown('</div>', unsafe_allow_html=True)
+
+# ── FOOTER ─────────────────────────────────────────────────────────────────────
+st.markdown(f'''
+<div class="footer">
+  <img src="{LOGO_SRC}" alt="FreightFox" style="height: 40px; filter: brightness(10); margin-bottom: 24px;">
+  <div class="footer-meta">
+    LightGBM v3.4 Deployment · R² 0.928 Precision · 17.8% OOS MAPE<br>
+    7 Year E-Way Bill Time Series · 10,000+ Carrier Bid Records · Global Haulage Intelligence<br>
+    © 2026 FreightFox Technologies
+  </div>
+</div>''', unsafe_allow_html=True)
