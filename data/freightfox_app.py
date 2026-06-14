@@ -322,9 +322,11 @@ def extract_cap(v):
 # ── DATA + MODEL ───────────────────────────────────────────────────────────────
 @st.cache_data(show_spinner=False)
 def load_data():
-    ewb = pd.read_csv('ewb_features_v2.csv', parse_dates=['date'])
-    rfq_raw = pd.read_csv('model_ready_v2.csv')
-    fi_path = 'feature_importance_v3.csv' if __import__('os').path.exists('feature_importance_v3.csv') else 'feature_importance_v2.csv'
+    import os
+    base_dir = os.path.dirname(__file__)
+    ewb = pd.read_csv(os.path.join(base_dir, 'ewb_features_v2.csv'), parse_dates=['date'])
+    rfq_raw = pd.read_csv(os.path.join(base_dir, 'model_ready_v2.csv'))
+    fi_path = os.path.join(base_dir, 'feature_importance_v3.csv') if os.path.exists(os.path.join(base_dir, 'feature_importance_v3.csv')) else os.path.join(base_dir, 'feature_importance_v2.csv')
     fi = pd.read_csv(fi_path)
 
     ewb.rename(columns={'odi_3m': 'odi_3m_avg', 'sdpi_3m': 'sdpi_3m_avg'}, inplace=True)
